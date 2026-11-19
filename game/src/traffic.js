@@ -1,14 +1,12 @@
-// Traffic: Port Azura's self-driving cars. Each one follows the road grid in its own
-// right-hand lane, picks a fresh direction at every intersection, slows for whatever
-// is ahead of it, and stops for a moment when it is rammed. The player can borrow any
-// traffic car with F while it is stopped or crawling; hand it back and, a few seconds
-// later, it finds its way to the nearest road and resumes its rounds.
+// Traffic: self-driving cars on the road grid, each in its own right-hand lane,
+// picking a fresh direction at every intersection, slowing for what is ahead, and
+// stopping briefly when rammed. F borrows one while it is stopped or crawling;
+// handed back, it finds the nearest road a few seconds later and resumes.
 //
-// A car's route lives in car.ai.st: { axis, line, dir, cross } — it is travelling along
-// road `line` (an index into world.roadLines) on axis 'v' (a north-south road) or 'h'
-// (an east-west one), in direction dir (+1 / -1 along that axis), toward intersection
-// `cross`. The steering is pure pursuit of a target point that sits in the car's lane:
-// the next intersection, or the corner point of the turn it is making.
+// A car's route lives in car.ai.st: { axis, line, dir, cross } — travelling along
+// road `line` (an index into world.roadLines) on axis 'v' or 'h', in direction dir
+// (+1 / -1), toward intersection `cross`. Steering is pure pursuit of a target
+// point in its lane: the next intersection, or the corner of the turn it is making.
 
 import { CITY, TRAFFIC } from './config.js';
 import { PAINT, makeCar, updateCar } from './cars.js';
@@ -43,11 +41,8 @@ function cornerTarget(lines, st, newDir) {
   return { x: lines[st.cross] - newDir * LANE, z: lines[st.line] + st.dir * LANE };
 }
 
-/**
- * Scatter the traffic cars over the road grid, each mid-block in its own lane and
- * already rolling. `avoid` is a list of {x, z} points (parked cars, the player) that
- * spawns keep a respectful distance from.
- */
+/** Scatter the traffic cars over the road grid, each mid-block in its own lane and
+ * already rolling. `avoid` is a list of {x, z} points spawns keep clear of. */
 export function spawnTraffic(scene, rng, world, avoid = []) {
   const lines = world.roadLines;
   const cars = [];
@@ -115,8 +110,8 @@ function decideManeuver(car, lines) {
   const last = lines.length - 1;
   const options = [];
   if (st.cross + st.dir >= 0 && st.cross + st.dir <= last) options.push('straight');
-  // From a north-south road, a left turn keeps the sign of dir on the new axis; from an
-  // east-west road it flips. Right turns are the mirror image.
+  // From a north-south road a left turn keeps the sign of dir; from an east-west
+  // road it flips. Right turns are the mirror image.
   const leftDir = st.axis === 'v' ? st.dir : -st.dir;
   const rightDir = -leftDir;
   if (st.line + leftDir >= 0 && st.line + leftDir <= last) options.push('left');
@@ -127,7 +122,7 @@ function decideManeuver(car, lines) {
     st.cross += st.dir;
     ai.target = legTarget(lines, st);
   } else if (pick === 'uturn') {
-    // Only at a dead end: swing around and head back the way the car came.
+    // Only at a dead end: swing around and head back the way it came.
     st.dir = -st.dir;
     st.cross += st.dir;
     ai.target = legTarget(lines, st);
@@ -167,10 +162,8 @@ function nextCross(lines, coord, dir) {
   return 0;
 }
 
-/**
- * Rebuild a route from wherever the car currently sits (the player may have left it
- * anywhere): aim it at the nearest road, in the direction it is roughly facing.
- */
+/** Rebuild a route from wherever the car sits: aim it at the nearest road, in the
+ * direction it is roughly facing. */
 function replan(car, world) {
   const lines = world.roadLines;
   const pos = car.group.position;
@@ -197,11 +190,8 @@ function replan(car, world) {
   car.ai.target = legTarget(lines, st);
 }
 
-/**
- * The fastest this car may go right now without rear-ending whatever is ahead of it.
- * ctx.cars holds every car (parked ones count for less: they hug the kerb, so only a
- * near head-on line blocks the lane); ctx.pedestrians and ctx.playerPos are people.
- */
+/** Fastest speed right now without rear-ending what is ahead. ctx.cars holds every
+ * car (parked ones count for less: they hug the kerb); ctx.pedestrians, ctx.playerPos. */
 function obstacleLimit(car, ctx) {
   const pos = car.group.position;
   const fx = Math.sin(car.heading);
@@ -249,8 +239,8 @@ function stepCar(car, dt, ctx, lines) {
   const ai = car.ai;
   const pos = car.group.position;
 
-  // Navigation: settle the maneuver for the intersection ahead before reaching it, and
-  // adopt the new road once a turn's corner has been rounded.
+  // Navigation: settle the maneuver for the intersection ahead, then adopt the new
+  // road once a turn's corner has been rounded.
   let dx = ai.target.x - pos.x;
   let dz = ai.target.z - pos.z;
   let dist = Math.hypot(dx, dz);
@@ -277,7 +267,7 @@ function stepCar(car, dt, ctx, lines) {
   let throttle = 0;
   let brake = false;
   if (ai.reverse > 0) {
-    // Unstick: back up briefly, swinging the nose the other way, then try again.
+    // Unstick: back up briefly, nose swinging the other way, then try again.
     ai.reverse -= dt;
     throttle = -1;
     steer = steer !== 0 ? -steer : ai.lastSteer !== 0 ? -ai.lastSteer : 0.7;
@@ -299,18 +289,15 @@ function stepCar(car, dt, ctx, lines) {
   detectRam(car, ctx);
 }
 
-/**
- * Advance every traffic car by dt. ctx is { world, cars, pedestrians, playerCar,
- * playerPos, now }: every car in the city, the people in it, the car the player is
- * driving (or null), the player's on-foot position (or null), and the clock.
- */
+/** Advance every traffic car by dt. ctx is { world, cars, pedestrians, playerCar,
+ * playerPos, now }. */
 export function updateTraffic(cars, dt, ctx) {
   const lines = ctx.world.roadLines;
   for (const car of cars) {
     const ai = car.ai;
     if (!ai || ai.driven) continue;
     if (ai.needReplan) {
-      // Handed back by the player: roll to a stop, wait, then find the road again.
+      // Handed back: roll to a stop, wait, then find the road again.
       updateCar(car, IDLE_INPUT, dt, ctx.world);
       if (ctx.now >= ai.resumeAt) {
         replan(car, ctx.world);

@@ -1,17 +1,11 @@
-// Missions: Marisol Venn runs the harbour cranes, half the quay, and — if the talk on
-// the docks is true — most of what moves through Port Azura after dark. Her gold
-// marker burns on the quay; step into it and she has work. Eight jobs tell her story:
-// a first delivery, a borrowed car, a round of pickups, a run under heat, one long
-// night haul, then — once the harbour trusts you — a quiet package, a heat-wave
-// round of drops, and one last heist on the east quay. Finish the eight and the city
-// is yours — the marker stays lit for anyone who wants the work again, at half the
-// money. Nothing here fails hard: run out of time and the job simply waits at the
-// marker for another try.
+// Missions: Marisol Venn's eight jobs on the quay — a first delivery, a borrowed
+// car, pickups, a run under heat, a night haul, then (once the harbour trusts you)
+// a quiet package, heat-wave drops, and one last heist on the east quay. Finish
+// the eight and the marker stays lit for replays at half the money. Run out of time
+// and the job simply waits at the marker for another try.
 //
-// The module owns the markers and the mission state machine. It never touches the
-// player's wallet or the wanted level itself: it reports what happened through its
-// events queue (steal, setWanted, pickup, complete with the payout, fail) and lets
-// main.js apply the consequences and the sounds.
+// The module owns the markers and the state machine; it reports through its events
+// queue (steal, setWanted, pickup, complete, fail) and main.js applies the rest.
 
 /** Where Marisol's marker burns: on the quay, between the two harbour sheds. */
 export const MARISOL = { x: 16, z: 176 };
@@ -153,17 +147,17 @@ const DEFS = [
   },
 ];
 
-const DEPOT = { x: -108, z: -108 }; // M1: the Halcyon depot gate, across town.
-const GARAGE = { x: -64, z: 165 }; // M2: in front of Marisol's harbour shed.
-const CRATES = [ // M3: where the wandering crates turned up (all intersections).
+const DEPOT = { x: -108, z: -108 }; // M1: Halcyon depot gate.
+const GARAGE = { x: -64, z: 165 }; // M2: Marisol's harbour shed.
+const CRATES = [ // M3: wandering crates (all intersections).
   { x: -108, z: -36 },
   { x: 108, z: 72 },
   { x: -36, z: 108 },
 ];
 const HIDEOUT = { x: 144, z: -144 }; // M4: the north-east corner.
-const VAN_DEPOT = { x: 105.2, z: 96 }; // M5: the van waits on the east-side road.
+const VAN_DEPOT = { x: 105.2, z: 96 }; // M5: the van, east-side road.
 const NORTH_GATE = { x: -144, z: -72 }; // M5: the far-side delivery point.
-const PICK6 = { x: 108, z: -36 }; // M6: the quiet package, Marina side street.
+const PICK6 = { x: 108, z: -36 }; // M6: quiet package, Marina side street.
 const DROP6 = { x: -144, z: 72 }; // M6: the Old Town drop.
 const DROPS7 = [ // M7: three drops under heat, in order.
   { x: -36, z: -108 },
@@ -171,7 +165,7 @@ const DROPS7 = [ // M7: three drops under heat, in order.
   { x: -108, z: 144 },
 ];
 const HEIST = { x: 144, z: 166 }; // M8: the sealed crate on the east quay.
-const FINAL8 = { x: -144, z: -144 }; // M8: the north-west corner, end of the line.
+const FINAL8 = { x: -144, z: -144 }; // M8: north-west corner, end of the line.
 
 function dist(a, b) {
   return Math.hypot(a.x - b.x, a.z - b.z);
@@ -196,7 +190,7 @@ export function createMissions(scene, parkedCars) {
   let storyDone = false;
   let replayCursor = 0;
   let active = null; // { def, stage, timeLeft, targetCar, pickups, replay }
-  let armed = true; // The start marker only fires on a fresh step into it.
+  let armed = true; // Start marker fires only on a fresh step in.
   let animT = 0;
   let objectiveText = '';
   let van = null;
@@ -267,7 +261,7 @@ export function createMissions(scene, parkedCars) {
     if (def.id === 'first-run') {
       pointTargetAt(DEPOT);
     } else if (def.id === 'hot-property') {
-      // The marked car: whichever parked car is resting farthest from the harbour.
+      // The marked car: whichever parked car rests farthest from the harbour.
       let best = null;
       let bestDist = -1;
       for (const car of parkedCars) {
@@ -287,7 +281,7 @@ export function createMissions(scene, parkedCars) {
         scene.add(van.group);
         ctx.registerCar(van);
       }
-      // The van always starts the job waiting at the east depot, keys in.
+      // The van always starts the job waiting at the east depot.
       van.group.position.set(VAN_DEPOT.x, 0, VAN_DEPOT.z);
       van.heading = 0;
       van.speed = 0;
@@ -310,7 +304,7 @@ export function createMissions(scene, parkedCars) {
     active = null;
     objectiveText = '';
     clearStageProps();
-    armed = false; // Whoever just finished stands in or near the marker: re-arm on exit.
+    armed = false; // Re-arm on exit: the finisher stands in the marker.
   }
 
   function completeMission() {
@@ -339,15 +333,10 @@ export function createMissions(scene, parkedCars) {
     showCard('OUT OF TIME', 'Marisol: "No harm done — the job will still be there. Head back to the gold marker when you\'re ready."');
   }
 
-  /**
-   * Advance the mission state by dt. ctx is { pos, mode, car, now, seen, registerCar }:
-   * where the player is (his car when driving), how he travels, the car he is in,
-   * the game clock, whether a police unit can see him, and a hook that adds a newly
-   * spawned car to the city's car list.
-   */
+  /** Advance the mission state by dt. ctx is { pos, mode, car, now, seen, registerCar }. */
   function update(dt, ctx) {
     animT += dt;
-    // The harbour marker breathes gently so it reads from down the quay.
+    // The harbour marker breathes so it reads from down the quay.
     const pulse = 0.3 + Math.sin(animT * 2.4) * 0.08;
     startMarker.children[0].material.opacity = pulse;
     startMarker.visible = !active;

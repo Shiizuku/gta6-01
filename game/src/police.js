@@ -1,14 +1,7 @@
-// Police: Port Azura's finest, such as they are. A police force keeps as many units
-// on the street as the wanted level calls for (capped, and none at all at zero stars).
-// Units roll in at road positions well away from the player's view, navigate the road
-// grid toward the player the way traffic does — except that at every intersection
-// they pick the turn that heads most directly at the player — and switch to a direct
-// chase when they get close. On foot they box the player in rather than running him
-// down; in a car they lean on the bumper and try to block him in.
-//
-// A unit's route lives in car.police.st exactly like a traffic car's ai.st:
-// { axis, line, dir, cross }, plus a mode: 'leg' | 'corner' on the grid, or 'direct'
-// when the chase leaves the grid and steers straight at the player.
+// Police: units roll in on the road grid toward the player, turning at each
+// intersection toward him, then a direct chase up close; on foot they box him in,
+// in a car they lean on his bumper. Route state lives in car.police.st, like a
+// traffic car's ai.st: { axis, line, dir, cross }, mode 'leg' | 'corner' | 'direct'.
 
 import { POLICE, TRAFFIC } from './config.js';
 import { makeCar, updateCar } from './cars.js';
@@ -52,8 +45,7 @@ function nextCross(lines, coord, dir) {
   return 0;
 }
 
-/** A black-and-white patrol car: a makeCar in dark paint, white door panels, and a
- * red/blue light bar whose materials the update loop flashes while pursuing. */
+/** A black-and-white patrol car, light bar flashing while pursuing. */
 function makePoliceCar(scene) {
   const group = makeCar(0x16181d);
   const panelMaterial = new THREE.MeshLambertMaterial({ color: 0xe8ecf0 });
@@ -82,7 +74,91 @@ function makePoliceCar(scene) {
   return { group, lights: { red: redMat, blue: blueMat } };
 }
 
-/** Begin a turn at the intersection ahead: aim at the corner point of the new lane. */
+// Police helicopter: dark-blue body, white belly, tail boom + fin, spinning main
+// and tail rotors, flashing beacon, searchlight (SpotLight + faint cone) tracking
+// the player. It only watches — never shoots.
+function makeHeli(scene) {
+  const lam = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const g = new THREE.Group();
+  const add = (geo, mat, x, y, z) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    g.add(m);
+    return m;
+  };
+  const dark = lam(0x1c2f4d);
+  add(new THREE.BoxGeometry(4.4, 1.5, 2.2), dark, 0, 0.4, 0);
+  add(new THREE.BoxGeometry(3.4, 0.7, 1.8), lam(0xe8ecf0), 0, -0.4, 0);
+  add(new THREE.BoxGeometry(4.4, 0.7, 0.7), dark, -4.1, 0.7, 0);
+  add(new THREE.BoxGeometry(0.5, 1.6, 0.2), dark, -6.1, 1.1, 0);
+  const rotor = add(new THREE.BoxGeometry(9.5, 0.08, 0.5), lam(0x0c0e12), 0, 1.35, 0);
+  const tailRotor = add(new THREE.BoxGeometry(0.08, 1.7, 0.3), lam(0x0c0e12), -6.1, 0.9, 0.45);
+  const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff2b2b });
+  add(new THREE.SphereGeometry(0.22, 8, 6), beaconMat, 0, 1.3, 0);
+  const coneMat = new THREE.MeshBasicMaterial({
+    color: 0xfff2b0, transparent: true, opacity: 0.08,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  add(new THREE.ConeGeometry(7, 40, 16, 1, true), coneMat, 0, -20, 0);
+  const spot = new THREE.SpotLight(0xfff2b0, 0.8, 95, 0.32, 0.5, 1);
+  const spotTarget = new THREE.Object3D();
+  scene.add(spotTarget);
+  spot.target = spotTarget;
+  g.add(spot);
+  scene.add(g);
+  return {
+    group: g, rotor, tailRotor, beaconMat, coneMat, spot, spotTarget,
+    leaving: false, dir: null, t: 0,
+  };
+}
+
+function stepHeli(h, dt, ctx) {
+  h.t += dt;
+  const p = h.group.position;
+  const dark = ctx.dark || 0;
+  h.rotor.rotation.y += dt * 22;
+  h.tailRotor.rotation.x += dt * 30;
+  h.beaconMat.color.setHex(Math.floor(h.t * 3) % 2 === 0 ? 0xff2b2b : 0x4d0d0d);
+  const bankTo = (roll) => {
+    h.group.rotation.z += (roll - h.group.rotation.z) * Math.min(1, dt * 2);
+  };
+  if (h.leaving) {
+    if (!h.dir) {
+      const dx = p.x - ctx.playerPos.x;
+      const dz = p.z - ctx.playerPos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      h.dir = { x: dx / d, z: dz / d };
+    }
+    p.x += h.dir.x * 26 * dt;
+    p.z += h.dir.z * 26 * dt;
+    p.y += (70 - p.y) * Math.min(1, dt * 1.5);
+    h.group.rotation.y = Math.atan2(h.dir.x, h.dir.z);
+    bankTo(0.22);
+    // The beam dies as it pulls away: the chase is over.
+    const fade = Math.max(0, 1 - dt * 1.5);
+    h.spot.intensity *= fade;
+    h.coneMat.opacity *= fade;
+    return;
+  }
+  h.dir = null; // leaving again later picks a fresh direction away from the player
+  // Slow orbit above the player, ~40 m up and banked into the turn; the beam follows him.
+  const a = h.t * 0.35;
+  const tx = ctx.playerPos.x + Math.cos(a) * 8;
+  const tz = ctx.playerPos.z + Math.sin(a) * 8;
+  const k = Math.min(1, dt * 1.2);
+  p.x += (tx - p.x) * k;
+  p.z += (tz - p.z) * k;
+  p.y += (40 - p.y) * Math.min(1, dt * 1.5);
+  h.group.rotation.y = Math.atan2(ctx.playerPos.x - p.x, ctx.playerPos.z - p.z);
+  bankTo(0.18);
+  h.spotTarget.position.set(ctx.playerPos.x, 0, ctx.playerPos.z);
+  // Ease the beam toward dusk brightness (fades back in if recalled mid-departure).
+  const ease = Math.min(1, dt * 2);
+  h.spot.intensity += (0.7 + dark * 2.2 - h.spot.intensity) * ease;
+  h.coneMat.opacity += (0.05 + dark * 0.11 - h.coneMat.opacity) * ease;
+}
+
+/** Begin a turn at the intersection ahead. */
 function startTurn(car, lines, newDir) {
   const P = car.police;
   const st = P.st;
@@ -96,7 +172,7 @@ function startTurn(car, lines, newDir) {
   P.kind = 'corner';
 }
 
-/** The unit has rounded its corner: adopt the new road and aim at its next crossing. */
+/** The unit has rounded its corner: adopt the new road. */
 function completeTurn(car, lines) {
   const P = car.police;
   const turn = P.pendingTurn;
@@ -109,11 +185,8 @@ function completeTurn(car, lines) {
   P.target = legTarget(lines, P.st);
 }
 
-/**
- * Choose the maneuver at the intersection ahead — straight, left, right, or (only
- * when nothing else points the right way) a U-turn — by which resulting travel
- * direction points most closely at the player.
- */
+/** At the intersection ahead, pick the maneuver whose direction points most
+ * closely at the player (a U-turn only when nothing else points the right way). */
 function decideManeuver(car, lines, playerPos) {
   const P = car.police;
   const st = P.st;
@@ -149,7 +222,7 @@ function decideManeuver(car, lines, playerPos) {
   options[0].apply();
 }
 
-/** Rebuild a grid route from wherever the unit currently sits, facing as it faces. */
+/** Rebuild a grid route from wherever the unit currently sits. */
 function planRoute(car, world) {
   const lines = world.roadLines;
   const pos = car.group.position;
@@ -176,12 +249,8 @@ function planRoute(car, world) {
   car.police.target = legTarget(lines, st);
 }
 
-/**
- * The fastest this unit may go without rear-ending whatever is ahead of it. The car
- * the player is driving is deliberately not an obstacle: contact is the point. On
- * foot, the player is not scanned either — the approach-speed formula in stepPolice
- * handles stopping next to him.
- */
+/** Fastest speed without rear-ending what is ahead (the player car and, on foot,
+ * the player himself, are deliberately not obstacles: contact is the point). */
 function obstacleLimit(car, ctx) {
   const pos = car.group.position;
   const fx = Math.sin(car.heading);
@@ -224,11 +293,10 @@ function stepPolice(car, dt, ctx, lines) {
   if (P.kind === 'direct') {
     P.target = { x: ctx.playerPos.x, z: ctx.playerPos.z };
     if (!ctx.playerInCar) {
-      // Roll up and stop beside the player, close enough to corner him (the BUSTED
-      // meter in main.js does the rest) without mowing him down at full speed.
+      // Roll up and stop beside him (the BUSTED meter does the rest).
       if (pDist < 12) desired = Math.max(0, (pDist - 4.2) * 1.1);
     } else if (pDist < 3.1) {
-      // Leaning on the player's bumper: match his speed and smother the chase.
+      // Lean on his bumper: match his speed and smother the chase.
       car.speed = Math.min(car.speed, Math.abs(ctx.playerCar ? ctx.playerCar.speed : 0) + 0.6);
     }
   } else {
@@ -267,8 +335,7 @@ function stepPolice(car, dt, ctx, lines) {
   }
   updateCar(car, { throttle, steer, brake }, dt, ctx.world);
 
-  // The light bar strobes red/blue while there is any heat at all; at zero stars the
-  // lamps sit dim and the unit is just another car leaving the area.
+  // The light bar strobes red/blue while there is any heat at all.
   const phase = Math.floor(ctx.now * 5) % 2 === 0;
   if (ctx.wanted > 0) {
     car.lights.red.color.setHex(phase ? 0xff2b2b : 0x4d0d0d);
@@ -279,23 +346,27 @@ function stepPolice(car, dt, ctx, lines) {
   }
 }
 
-/**
- * Create the police force for a city. update(dt, ctx) keeps the unit count matched
- * to the wanted level and steps every unit; ctx is { world, cars, pedestrians,
- * playerPos, playerInCar, playerCar, viewDir, now, wanted } — every car in the city,
- * the people in it, where the player is (his car when driving), the camera's ground
- * view direction (spawns stay out of it), the clock, and the current star count.
+/** Create the police force. update(dt, ctx) keeps the unit count matched to the
+ * wanted level and steps every unit; ctx is { world, cars, pedestrians, playerPos,
+ * playerInCar, playerCar, viewDir, now, wanted, dark }.
  */
 export function createPoliceForce(scene, world, rng) {
   const cars = [];
   let spawnTimer = 0;
+  let heli = null;
 
   function removeCar(index) {
     scene.remove(cars[index].group);
     cars.splice(index, 1);
   }
 
-  /** Roll one unit in on a road far from the player and out of the camera's view. */
+  function removeHeli() {
+    scene.remove(heli.group);
+    scene.remove(heli.spotTarget);
+    heli = null;
+  }
+
+  /** Roll one unit in on a road far from the player, out of the camera's view. */
   function trySpawn(ctx) {
     const lines = world.roadLines;
     for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -348,9 +419,16 @@ export function createPoliceForce(scene, world, rng) {
 
   return {
     cars,
+    get heliActive() { return !!heli && !heli.leaving; },
+    get heliPos() {
+      return heli
+        ? { x: heli.group.position.x, y: heli.group.position.y, z: heli.group.position.z }
+        : null;
+    },
     /** Remove every unit at once (the player respawns across town after an arrest). */
     clear() {
       for (let i = cars.length - 1; i >= 0; i -= 1) removeCar(i);
+      if (heli) removeHeli();
     },
     update(dt, ctx) {
       const lines = world.roadLines;
@@ -361,9 +439,24 @@ export function createPoliceForce(scene, world, rng) {
         if (d > 175 || (ctx.wanted <= 0 && d > 45)) removeCar(i);
       }
       const target = ctx.wanted > 0 ? Math.min(ctx.wanted, POLICE.maxActive) : 0;
+      // At 4+ stars a helicopter joins the chase; below 3 it flies off. While it
+      // circles overhead, ground units roll in a little faster.
+      if (ctx.wanted >= 4 && !heli) {
+        heli = makeHeli(scene);
+        heli.group.position.set(ctx.playerPos.x + 60, 40, ctx.playerPos.z - 60);
+      }
+      if (heli) heli.leaving = ctx.wanted < 3;
+      if (heli) {
+        stepHeli(heli, dt, ctx);
+        const hp = heli.group.position;
+        if (heli.leaving && Math.hypot(hp.x - ctx.playerPos.x, hp.z - ctx.playerPos.z) > 200) {
+          removeHeli();
+        }
+      }
       spawnTimer -= dt;
       if (cars.length < target && spawnTimer <= 0) {
-        spawnTimer = trySpawn(ctx) ? POLICE.spawnInterval : 0.3;
+        const iv = heli && !heli.leaving ? POLICE.spawnInterval * 0.55 : POLICE.spawnInterval;
+        spawnTimer = trySpawn(ctx) ? iv : 0.3;
       }
       for (const car of cars) stepPolice(car, dt, ctx, lines);
     },

@@ -123,8 +123,7 @@ let camDist = CAMERA.footDistance;
 let lastDragAt = -10;
 let elapsed = 0;
 
-// Camera orbit input: drag to orbit, wheel to zoom. A press while playing on
-// foot also attacks (the drag and the swing coexist happily).
+// Camera orbit: drag to orbit, wheel to zoom; a press on foot also attacks.
 let dragging = false;
 renderer.domElement.addEventListener('pointerdown', (event) => {
   dragging = true;
@@ -330,7 +329,7 @@ function dismissEndcard() {
   if (endKind === 'wasted') health = START_HEALTH;
   endKind = null;
   if (mode === 'car') {
-    // Neither outcome can strike a driver, but never respawn inside a car by accident.
+    // Never respawn inside a car by accident.
     activeCar = null;
     mode = 'foot';
     player.group.visible = true;
@@ -353,7 +352,7 @@ window.addEventListener('keydown', () => {
 /** Per-frame cause and effect while playing: crimes, impacts, BUSTED meter. */
 function updateConsequences(dt) {
   if (mode === 'car' && activeCar) {
-    // Crimes at the wheel: ramming the law, and smashing into traffic at speed.
+    // Crimes at the wheel: ramming the law, smashing into traffic at speed.
     for (const unit of police.cars) {
       const d = Math.hypot(
         unit.group.position.x - activeCar.group.position.x,
@@ -376,7 +375,7 @@ function updateConsequences(dt) {
     return;
   }
 
-  // On foot, a moving car is an injury waiting to happen — traffic and police alike.
+  // On foot, a moving car can injure — traffic and police alike.
   const pos = player.group.position;
   for (const car of [...allCars, ...police.cars]) {
     const speed = Math.abs(car.speed);
@@ -391,7 +390,7 @@ function updateConsequences(dt) {
     }
   }
 
-  // Cornered: a police unit within arm's reach fills the meter; break away and it drains.
+  // Cornered: a unit at arm's reach fills the meter; break away and it drains.
   const cornered = wanted.level > 0 && police.cars.some((unit) => Math.hypot(
     unit.group.position.x - pos.x,
     unit.group.position.z - pos.z,
@@ -423,7 +422,7 @@ function updatePlaying(dt) {
   }
 
   if (mode === 'foot') {
-    // WASD relative to where the camera is looking (its ground-plane forward).
+    // WASD relative to the camera's ground-plane forward.
     const forward = { x: -Math.sin(camYaw), z: -Math.cos(camYaw) };
     const right = { x: -forward.z, z: forward.x };
     let mx = 0;
@@ -438,9 +437,8 @@ function updatePlaying(dt) {
     updatePlayer(player, dt, move, sprint, world);
     weapons.update(dt, { pos: player.group.position, heading: player.heading, mode, money, health, now: elapsed, audio, camera, pedestrians, police: police.cars, cars: allCars, wanted });
 
-    // Attack: click / J fires the pistol (raycast from the camera) or swings
-    // fists / bat at whatever is in front. A hit sends the victim fleeing;
-    // a witness turns a punch into a star, a shot always does.
+    // Attack: click / J fires the pistol or swings fists / bat; a hit sends the
+    // victim fleeing, a witness turns a punch into a star, a shot always does.
     punchCooldown -= dt;
     if ((wasPressed('KeyJ') || mousePunch) && punchCooldown <= 0) {
       punchCooldown = weapons.weapon === 'pistol' ? 0.28 : 0.38;
@@ -469,7 +467,7 @@ function updatePlaying(dt) {
       player.parts.armR.rotation.x = -2.0 * swing;
     }
   } else if (activeCar) {
-    // The 3-2-1 countdown holds the car still: no throttle until GO.
+    // 3-2-1 countdown: no throttle until GO.
     const input = races.countdownActive
       ? { throttle: 0, steer: 0, brake: true }
       : {
@@ -480,7 +478,7 @@ function updatePlaying(dt) {
     updateCar(activeCar, input, dt, world);
   }
 
-  // Health creeps back once the player has gone a while without taking a hit.
+  // Health creeps back after a while without taking a hit.
   if (health > 0 && health < START_HEALTH && elapsed - lastDamageAt > HEALTH.regenDelay) {
     health = Math.min(START_HEALTH, health + HEALTH.regenRate * dt);
   }
@@ -488,9 +486,9 @@ function updatePlaying(dt) {
   healthEl.style.width = `${health}%`;
   healthEl.style.background = health < 30 ? '#e5534b' : '';
   moneyEl.textContent = `$${money}`;
-  wantedEl.textContent = wanted.level > 0
+  wantedEl.textContent = (wanted.level > 0
     ? '★'.repeat(wanted.level) + '☆'.repeat(5 - wanted.level)
-    : '';
+    : '') + (police.heliActive ? ' 🚁' : '');
   bustedWrap.style.display = bustedMeter > 0.02 ? 'block' : 'none';
   bustedFill.style.width = `${bustedMeter * 100}%`;
 
@@ -535,7 +533,7 @@ function updatePlaying(dt) {
 
 function updateCamera(dt) {
   if (state === 'title') {
-    // A slow orbit above the harbour city behind the title.
+    // Slow orbit above the harbour city behind the title.
     const angle = elapsed * 0.05;
     camera.position.set(Math.sin(angle) * 125, 58, Math.cos(angle) * 125 + 10);
     camera.lookAt(0, 0, 16);
@@ -686,8 +684,8 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Shot staging: ?shot=start keeps the title over the orbit; ?shot=play drops straight
-// into the game beside the first parked car.
+// Shot staging: ?shot=start keeps the title over the orbit; ?shot=play drops
+// straight into the game beside the first parked car.
 if (shot === 'play') {
   startGame();
   camYaw = firstCar.heading + Math.PI;
@@ -701,7 +699,7 @@ if (shot === 'play') {
   announce('Neon Harbor: Port Azura. Press Start to explore the city.');
 }
 
-// The day drifting by: late afternoon melts into dusk and back over six minutes.
+// The day drifts: late afternoon into dusk and back over six minutes.
 const SKY_DAY = new THREE.Color(0x3b4a6b);
 const SKY_DUSK = new THREE.Color(0x252040);
 const SUN_DAY = new THREE.Color(0xffb36b);
@@ -709,10 +707,12 @@ const SUN_DUSK = new THREE.Color(0xff8033);
 const LAMP_DAY = new THREE.Color(0x8a6f45);
 const LAMP_DUSK = new THREE.Color(0xffca7a);
 const skyNow = new THREE.Color();
+let dayK = 0; // 0 afternoon → 1 dusk (drives the heli searchlight, too)
 
 function updateDayCycle() {
   const phase = (elapsed % DAY.cycleSeconds) / DAY.cycleSeconds;
   const k = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2); // 0 afternoon → 1 dusk → 0 again
+  dayK = k;
   skyNow.copy(SKY_DAY).lerp(SKY_DUSK, k);
   scene.background.copy(skyNow);
   scene.fog.color.copy(skyNow);
@@ -835,13 +835,15 @@ function togglePause() {
   announce(paused ? 'Paused.' : 'Playing.');
 }
 
-// A debug and test hook: read the run's vitals, and raise the heat on demand.
+// Debug/test hook: read the run's vitals, raise the heat on demand.
 window.__game = {
   get state() { return state; },
   get mode() { return mode; },
   get wanted() { return wanted.level; },
   setWanted(level) { setWanted(wanted, level); },
   get policeCount() { return police.cars.length; },
+  get heli() { return police.heliActive; },
+  get heliPos() { return police.heliPos; },
   get health() { return health; },
   get money() { return money; },
   get bustedMeter() { return bustedMeter; },
@@ -929,6 +931,7 @@ function frame(now) {
       viewDir: { x: -Math.sin(camYaw), z: -Math.cos(camYaw) },
       now: elapsed,
       wanted: wanted.level,
+      dark: dayK,
     });
     const seen = police.cars.some((unit) => {
       const p = unit.group.position;
