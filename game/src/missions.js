@@ -1,10 +1,12 @@
 // Missions: Marisol Venn runs the harbour cranes, half the quay, and — if the talk on
 // the docks is true — most of what moves through Port Azura after dark. Her gold
-// marker burns on the quay; step into it and she has work. Five jobs tell her story:
-// a first delivery, a borrowed car, a round of pickups, a run under heat, and one
-// long night haul. Finish the five and the city is yours — the marker stays lit for
-// anyone who wants the work again, at half the money. Nothing here fails hard: run
-// out of time and the job simply waits at the marker for another try.
+// marker burns on the quay; step into it and she has work. Eight jobs tell her story:
+// a first delivery, a borrowed car, a round of pickups, a run under heat, one long
+// night haul, then — once the harbour trusts you — a quiet package, a heat-wave
+// round of drops, and one last heist on the east quay. Finish the eight and the city
+// is yours — the marker stays lit for anyone who wants the work again, at half the
+// money. Nothing here fails hard: run out of time and the job simply waits at the
+// marker for another try.
 //
 // The module owns the markers and the mission state machine. It never touches the
 // player's wallet or the wanted level itself: it reports what happened through its
@@ -125,6 +127,30 @@ const DEFS = [
     brief: 'Marisol: "My van is waiting at the east depot, full of cargo that does not exist on any manifest. Take it to the north gate. Whatever you do, don\'t open the back."',
     outro: 'Marisol: "Delivered, sealed, and never happened. You\'re harbour family now."',
   },
+  {
+    id: 'silent-partner',
+    name: 'Silent Partner',
+    payout: 300,
+    time: 180,
+    brief: 'Marisol: "A package needs to cross town quiet. The police already watch the quay — if one of them spots you, the heat doubles. Pick it up in Marina, deliver it in Old Town."',
+    outro: 'Marisol: "Not a whisper. The partner is very pleased."',
+  },
+  {
+    id: 'heat-wave',
+    name: 'Heat Wave',
+    payout: 380,
+    time: 210,
+    brief: 'Marisol: "Three drops, one hot afternoon, and the whole force already on your tail. Hit every drop, then come home to me."',
+    outro: 'Marisol: "Three drops under a full heat wave. You\'re a legend on this quay."',
+  },
+  {
+    id: 'port-heist',
+    name: 'Port Heist',
+    payout: 600,
+    time: 240,
+    brief: 'Marisol: "One last job. A sealed crate sits on the east quay, guarded and unmanifested. Lift it, outrun the heat, and bring it to the north-west corner. After this, we\'re partners — not errands."',
+    outro: 'Marisol: "The harbour is ours. Eight jobs, not one whisper out of place. Port Azura is yours now."',
+  },
 ];
 
 const DEPOT = { x: -108, z: -108 }; // M1: the Halcyon depot gate, across town.
@@ -137,6 +163,15 @@ const CRATES = [ // M3: where the wandering crates turned up (all intersections)
 const HIDEOUT = { x: 144, z: -144 }; // M4: the north-east corner.
 const VAN_DEPOT = { x: 105.2, z: 96 }; // M5: the van waits on the east-side road.
 const NORTH_GATE = { x: -144, z: -72 }; // M5: the far-side delivery point.
+const PICK6 = { x: 108, z: -36 }; // M6: the quiet package, Marina side street.
+const DROP6 = { x: -144, z: 72 }; // M6: the Old Town drop.
+const DROPS7 = [ // M7: three drops under heat, in order.
+  { x: -36, z: -108 },
+  { x: 108, z: 36 },
+  { x: -108, z: 144 },
+];
+const HEIST = { x: 144, z: 166 }; // M8: the sealed crate on the east quay.
+const FINAL8 = { x: -144, z: -144 }; // M8: the north-west corner, end of the line.
 
 function dist(a, b) {
   return Math.hypot(a.x - b.x, a.z - b.z);
@@ -184,6 +219,31 @@ export function createMissions(scene, parkedCars) {
     targetMarker.visible = true;
   }
 
+  /** Gold pickup beams for a list of spots; returns the pickup records. */
+  function makePickups(spots) {
+    return spots.map((spot) => {
+      const beam = makeBeam(1.7, 3.2, 0.4);
+      beam.position.set(spot.x, 0, spot.z);
+      crateGroup.add(beam);
+      return { x: spot.x, z: spot.z, taken: false, beam };
+    });
+  }
+
+  /** Collect any pickup under the player's feet; returns how many are taken now. */
+  function collectPickups(ctx) {
+    let taken = 0;
+    for (const pickup of active.pickups) {
+      if (pickup.taken) { taken += 1; continue; }
+      if (dist(ctx.pos, pickup) < 4.5) {
+        pickup.taken = true;
+        crateGroup.remove(pickup.beam);
+        events.push({ type: 'pickup', name: active.def.name });
+        taken += 1;
+      }
+    }
+    return taken;
+  }
+
   function clearStageProps() {
     targetMarker.visible = false;
     pointer.visible = false;
@@ -217,12 +277,7 @@ export function createMissions(scene, parkedCars) {
       active.targetCar = best;
       pointer.visible = true;
     } else if (def.id === 'errand-boy') {
-      active.pickups = CRATES.map((spot) => {
-        const beam = makeBeam(1.7, 3.2, 0.4);
-        beam.position.set(spot.x, 0, spot.z);
-        crateGroup.add(beam);
-        return { x: spot.x, z: spot.z, taken: false, beam };
-      });
+      active.pickups = makePickups(CRATES);
     } else if (def.id === 'heat') {
       events.push({ type: 'setWanted', level: 2 });
       pointTargetAt(HIDEOUT);
@@ -240,6 +295,14 @@ export function createMissions(scene, parkedCars) {
       active.targetCar = van;
       pointer.visible = true;
       pointTargetAt(VAN_DEPOT);
+    } else if (def.id === 'silent-partner') {
+      active.pickups = makePickups([PICK6]);
+      events.push({ type: 'setWanted', level: 1 }); // The quay is already watched.
+    } else if (def.id === 'heat-wave') {
+      active.pickups = makePickups(DROPS7);
+      events.push({ type: 'setWanted', level: 2 }); // The whole force is on you.
+    } else if (def.id === 'port-heist') {
+      active.pickups = makePickups([HEIST]);
     }
   }
 
@@ -277,9 +340,10 @@ export function createMissions(scene, parkedCars) {
   }
 
   /**
-   * Advance the mission state by dt. ctx is { pos, mode, car, now, registerCar }:
+   * Advance the mission state by dt. ctx is { pos, mode, car, now, seen, registerCar }:
    * where the player is (his car when driving), how he travels, the car he is in,
-   * the game clock, and a hook that adds a newly spawned car to the city's car list.
+   * the game clock, whether a police unit can see him, and a hook that adds a newly
+   * spawned car to the city's car list.
    */
   function update(dt, ctx) {
     animT += dt;
@@ -333,16 +397,7 @@ export function createMissions(scene, parkedCars) {
       }
     } else if (def.id === 'errand-boy') {
       if (active.stage === 0) {
-        let taken = 0;
-        for (const pickup of active.pickups) {
-          if (pickup.taken) { taken += 1; continue; }
-          if (dist(ctx.pos, pickup) < 4.5) {
-            pickup.taken = true;
-            crateGroup.remove(pickup.beam);
-            events.push({ type: 'pickup', name: def.name });
-            taken += 1;
-          }
-        }
+        const taken = collectPickups(ctx);
         objectiveText = `Collect Marisol's crates around town (${taken}/${active.pickups.length})`;
         if (taken >= active.pickups.length) {
           active.stage = 1;
@@ -357,6 +412,54 @@ export function createMissions(scene, parkedCars) {
       if (dist(ctx.pos, HIDEOUT) < 8) {
         events.push({ type: 'setWanted', level: 0 });
         completeMission();
+      }
+    } else if (def.id === 'silent-partner') {
+      if (active.stage === 0) {
+        objectiveText = 'Pick up the package in Marina — quietly';
+        if (collectPickups(ctx) >= 1) {
+          active.stage = 1;
+          pointTargetAt(DROP6);
+        }
+      } else {
+        objectiveText = 'Deliver it in Old Town — stay out of police sight';
+        if (!active.detected && ctx.seen) { // Spotted: the heat doubles.
+          active.detected = true;
+          events.push({ type: 'setWanted', level: 2 });
+        }
+        if (dist(ctx.pos, DROP6) < 8) {
+          events.push({ type: 'setWanted', level: 0 });
+          completeMission();
+        }
+      }
+    } else if (def.id === 'heat-wave') {
+      if (active.stage === 0) {
+        const taken = collectPickups(ctx);
+        objectiveText = `Heat Wave drops (${taken}/${active.pickups.length}) — the police are already on you`;
+        if (taken >= active.pickups.length) {
+          active.stage = 1;
+          pointTargetAt(MARISOL);
+        }
+      } else {
+        objectiveText = 'All drops made — get back to Marisol';
+        if (dist(ctx.pos, MARISOL) < 4.5) {
+          events.push({ type: 'setWanted', level: 0 });
+          completeMission();
+        }
+      }
+    } else if (def.id === 'port-heist') {
+      if (active.stage === 0) {
+        objectiveText = 'Lift the sealed crate off the east quay';
+        if (collectPickups(ctx) >= 1) {
+          active.stage = 1;
+          events.push({ type: 'setWanted', level: 2 }); // Lifting it trips the heat.
+          pointTargetAt(FINAL8);
+        }
+      } else {
+        objectiveText = 'Run the crate to the north-west corner — with the heat on you';
+        if (dist(ctx.pos, FINAL8) < 8) {
+          events.push({ type: 'setWanted', level: 0 });
+          completeMission();
+        }
       }
     } else if (def.id === 'night-haul') {
       if (active.stage === 0) {
@@ -390,6 +493,16 @@ export function createMissions(scene, parkedCars) {
       return active.pickups.filter((p) => !p.taken).map((p) => ({ x: p.x, z: p.z }));
     }
     if (def.id === 'heat') return [HIDEOUT];
+    if (def.id === 'silent-partner') {
+      return active.stage === 1 ? [DROP6] : [{ x: PICK6.x, z: PICK6.z }];
+    }
+    if (def.id === 'heat-wave') {
+      if (active.stage === 1) return [{ x: MARISOL.x, z: MARISOL.z }];
+      return active.pickups.filter((p) => !p.taken).map((p) => ({ x: p.x, z: p.z }));
+    }
+    if (def.id === 'port-heist') {
+      return active.stage === 1 ? [FINAL8] : [{ x: HEIST.x, z: HEIST.z }];
+    }
     if (def.id === 'night-haul') {
       return active.stage === 0
         ? [{ x: van.group.position.x, z: van.group.position.z }]
@@ -398,7 +511,7 @@ export function createMissions(scene, parkedCars) {
     return [];
   }
 
-  /** Restore story progress from a save (0..5 jobs done). Replay state resets. */
+  /** Restore story progress from a save (0..8 jobs done). Replay state resets. */
   function setProgress(n) {
     progress = Math.max(0, Math.min(DEFS.length, Math.round(n) || 0));
     storyDone = progress >= DEFS.length;

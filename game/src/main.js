@@ -19,6 +19,8 @@ import { createWanted, hasLineOfSight, reportCrime, setWanted, updateWanted } fr
 import { createMissions, MARISOL } from './missions.js';
 import { createRaces } from './races.js';
 import { createStanding, districtAt } from './standing.js';
+import { createTaxi } from './taxi.js';
+import { createStashes } from './stashes.js';
 import { clearSave, loadSave, writeSave } from './save.js';
 import { createAudio } from './audio.js';
 import { createPlayer, turnToward, updatePlayer } from './player.js';
@@ -43,6 +45,7 @@ const endSubEl = document.getElementById('endsub');
 const hintEl = document.getElementById('hint');
 const raceEl = document.getElementById('racetimer');
 const districtEl = document.getElementById('district');
+const stashEl = document.getElementById('stash');
 const standFillEl = document.getElementById('standfill');
 const objectiveEl = document.getElementById('objective');
 const missioncardEl = document.getElementById('missioncard');
@@ -101,6 +104,8 @@ const police = createPoliceForce(scene, world, createRandom(seed * 5557 + 3));
 const missions = createMissions(scene, cars);
 const standing = createStanding();
 const races = createRaces(scene, standing);
+const taxi = createTaxi(scene, standing);
+const stashes = createStashes(scene);
 const audio = createAudio();
 let paused = false;
 let saveTimer = 0;
@@ -163,6 +168,8 @@ function applySave(data) {
   missions.setProgress(data.missionsCompleted);
   races.setResults(data.races);
   standing.setValues(data.standing);
+  taxi.setResults(data.taxi);
+  stashes.setFound(data.stashes);
   if (data.seed !== seed || !data.player) return; // Another city's save: keep the vitals, spawn fresh.
   if (data.car && allCars[data.car.index]) {
     const car = allCars[data.car.index];
@@ -196,6 +203,8 @@ function saveNow() {
     storyDone: missions.storyDone,
     races: races.serialize(),
     standing: standing.serialize(),
+    taxi: taxi.serialize(),
+    stashes: stashes.serialize(),
     seed,
     player: { x: f.pos.x, z: f.pos.z, heading: player.heading },
     car: activeCar
@@ -432,6 +441,11 @@ function updatePlaying(dt) {
     audio.chime();
   }
 
+  // T beside a waiting passenger, while driving, takes the fare.
+  if (wasPressed('KeyT') && mode === 'car' && taxi.tryAccept(focus().pos, true)) {
+    audio.chime();
+  }
+
   if (mode === 'foot') {
     // WASD relative to where the camera is looking (its ground-plane forward).
     const forward = { x: -Math.sin(camYaw), z: -Math.cos(camYaw) };
@@ -501,8 +515,9 @@ function updatePlaying(dt) {
   bustedWrap.style.display = bustedMeter > 0.02 ? 'block' : 'none';
   bustedFill.style.width = `${bustedMeter * 100}%`;
 
-  // The job on the table, with its clock when it has one.
-  const objective = missions.objectiveText;
+  // The job on the table, with its clock when it has one; a running taxi fare
+  // borrows the same line when no mission is on.
+  const objective = missions.objectiveText || taxi.hudText();
   if (objective) {
     const t = missions.timerLeft;
     objectiveEl.textContent = t != null
@@ -513,6 +528,7 @@ function updatePlaying(dt) {
     objectiveEl.style.display = 'none';
     objectiveEl.textContent = '';
   }
+  stashEl.textContent = `Stash ${stashes.count}/${stashes.total}`;
 
   // Race clock (or the 3-2-1-GO), and the district standing where the player stands.
   const raceText = races.hudText();
@@ -524,6 +540,7 @@ function updatePlaying(dt) {
   standFillEl.style.width = `${standing.value(hereDistrict.id)}%`;
 
   if (!missions.activeName && missions.nearStart(focus().pos)) hintEl.textContent = 'Step in — Marisol has work for you';
+  else if (mode === 'car' && taxi.nearWaiting(focus().pos)) hintEl.textContent = 'T — pick up a passenger';
   else if (mode === 'car' && !races.activeName && races.nearStart(focus().pos)) {
     const race = races.nearStart(focus().pos);
     hintEl.textContent = `E — start ${race.name} ($${race.reward})`;
@@ -660,6 +677,25 @@ function drawMinimap() {
     g.stroke();
   }
 
+  // Taxi: an amber dot for the waiting passenger, a ring for the drop-off.
+  for (const blip of taxi.mapBlips()) {
+    const [bx, by] = mapPoint(blip.x, blip.z);
+    g.beginPath();
+    g.arc(bx, by, blip.kind === 'taxiDest' ? 5 : 3, 0, Math.PI * 2);
+    g.fillStyle = blip.kind === 'taxiDest' ? 'rgba(242, 201, 76, 0.35)' : '#f2c94c';
+    g.fill();
+    g.lineWidth = 1;
+    g.strokeStyle = '#f2c94c';
+    g.stroke();
+  }
+
+  // Harbour stashes still out there, as small green dots.
+  g.fillStyle = '#7dff8a';
+  for (const blip of stashes.mapBlips()) {
+    const [bx, by] = mapPoint(blip.x, blip.z);
+    g.fillRect(bx - 1.25, by - 1.25, 2.5, 2.5);
+  }
+
   // The player (or the driven car) as a white arrow rotated by facing. On the map,
   // facing (sin h, cos h) in world XZ becomes the canvas direction (sin h, cos h).
   const { pos, heading } = focus();
@@ -780,6 +816,43 @@ function drainRaceEvents() {
   races.events.length = 0;
 }
 
+/** Taxi bookkeeping: main.js pays the fare and saves. */
+function drainTaxiEvents() {
+  for (const event of taxi.events) {
+    if (event.type === 'fare') {
+      money += event.payout;
+      audio.jingle();
+      saveNow();
+      announce(`Fare complete. +$${event.payout}.`);
+    } else if (event.type === 'pickup') {
+      audio.chime();
+      announce('Passenger aboard — get them there before the clock runs out.');
+    } else if (event.type === 'timeout') {
+      announce('Too slow — the passenger got out and flagged another cab.');
+    } else if (event.type === 'cancel') {
+      announce('Fare abandoned.');
+    }
+  }
+  taxi.events.length = 0;
+}
+
+/** Stash bookkeeping: +$25 and +1 standing per stash; all ten pay a $250 bonus. */
+function drainStashEvents() {
+  for (const event of stashes.events) {
+    money += event.payout;
+    standing.addStanding(event.district, 1);
+    audio.chime();
+    saveNow();
+    if (stashes.count >= stashes.total) {
+      money += 250;
+      announce(`All ${stashes.total} harbour stashes found! +$${event.payout} + $250 bonus.`);
+    } else {
+      announce(`Harbour stash found (${stashes.count}/${stashes.total}). +$${event.payout}.`);
+    }
+  }
+  stashes.events.length = 0;
+}
+
 function togglePause() {
   paused = !paused;
   pausedEl.classList.toggle('hidden', !paused);
@@ -806,6 +879,15 @@ window.__game = {
   },
   get races() {
     return { active: races.activeName, best: races.best, wins: races.wins };
+  },
+  get taxi() {
+    return {
+      active: taxi.active, dest: taxi.dest, waitingSpot: taxi.waitingSpot,
+      fares: taxi.fares, earned: taxi.earned,
+    };
+  },
+  get stashes() {
+    return { found: stashes.found, count: stashes.count, spots: stashes.spots };
   },
   get standing() { return standing.serialize(); },
   get raceDefs() { return races.defs; },
@@ -886,11 +968,16 @@ function frame(now) {
       mode,
       car: activeCar,
       now: elapsed,
+      seen,
       registerCar: (car) => { allCars.push(car); },
     });
     drainMissionEvents();
     races.update(dt, { pos: f.pos, inCar: mode === 'car' });
     drainRaceEvents();
+    taxi.update(dt, { pos: f.pos, inCar: mode === 'car' });
+    drainTaxiEvents();
+    stashes.update(dt, { pos: f.pos });
+    drainStashEvents();
     saveTimer += dt;
     if (saveTimer >= 15) {
       saveTimer = 0;
