@@ -1,14 +1,6 @@
-// Traffic: Port Azura's self-driving cars. Each one follows the road grid in its own
-// right-hand lane, picks a fresh direction at every intersection, slows for whatever
-// is ahead of it, and stops for a moment when it is rammed. The player can borrow any
-// traffic car with F while it is stopped or crawling; hand it back and, a few seconds
-// later, it finds its way to the nearest road and resumes its rounds.
-//
-// A car's route lives in car.ai.st: { axis, line, dir, cross } — it is travelling along
-// road `line` (an index into world.roadLines) on axis 'v' (a north-south road) or 'h'
-// (an east-west one), in direction dir (+1 / -1 along that axis), toward intersection
-// `cross`. The steering is pure pursuit of a target point that sits in the car's lane:
-// the next intersection, or the corner point of the turn it is making.
+// Traffic: self-driving cars on the road grid, right-hand lane, fresh direction at
+// every intersection; the player can borrow one with F while it is stopped or
+// crawling, and it resumes its rounds a few seconds after being handed back.
 
 import { CITY, TRAFFIC } from './config.js';
 import { PAINT, makeCar, updateCar } from './cars.js';

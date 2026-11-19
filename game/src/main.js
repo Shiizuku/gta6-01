@@ -1,6 +1,4 @@
 // Neon Harbor: Port Azura — boot, game loop, camera, cars, HUD, minimap, wanted.
-// ?seed=N fixes the layout (default 1). ?shot=start|play stages title / in-game
-// and sets window.__shotReady once the staged frame has painted.
 
 import { CAMERA, CAR, CITY, DAY, HEALTH, PLAYER, POLICE, START_HEALTH, START_MONEY, WANTED } from './config.js';
 import { createRandom } from './random.js';
@@ -66,8 +64,6 @@ const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerH
 const world = buildWorld(scene, createRandom(seed));
 const cars = spawnParkedCars(scene, createRandom(seed * 7919 + 13), world);
 
-// The player starts beside the first parked car, on its road side, so neither
-// the player nor the opening camera starts inside a building.
 const firstCar = cars[0];
 const carPos = firstCar.group.position;
 const onVerticalRoad = Math.abs(Math.sin(firstCar.heading)) < 0.5;
@@ -83,7 +79,6 @@ if (onVerticalRoad) {
 const player = createPlayer(scene, spawnX, spawnZ);
 player.heading = firstCar.heading + Math.PI;
 
-// The living city: self-driving traffic and pedestrians on the sidewalks.
 const trafficCars = spawnTraffic(scene, createRandom(seed * 104729 + 7), world, [
   ...cars.map((car) => car.group.position),
   player.group.position,
@@ -91,11 +86,9 @@ const trafficCars = spawnTraffic(scene, createRandom(seed * 104729 + 7), world, 
 const pedestrians = spawnPedestrians(scene, createRandom(seed * 31337 + 101));
 const allCars = [...cars, ...trafficCars];
 
-// Consequences: the heat, the force that answers it, and the player's body.
 const wanted = createWanted();
 const police = createPoliceForce(scene, world, createRandom(seed * 5557 + 3));
 
-// Work, memory, and noise: Marisol's job chain, the saved run, the pocket synth.
 const missions = createMissions(scene, cars);
 const standing = createStanding();
 const races = createRaces(scene, standing);
@@ -107,7 +100,6 @@ let paused = false;
 let saveTimer = 0;
 let bootSave = loadSave();
 if (bootSave) {
-  // A returning player gets the choice: pick the old run up, or burn it and start over.
   continueBtn.classList.remove('hidden');
   startBtn.textContent = 'NEW GAME';
 }
@@ -361,13 +353,9 @@ window.addEventListener('keydown', () => {
   if (state === 'over') dismissEndcard();
 });
 
-/**
- * Per-frame cause and effect while playing: crimes at the wheel, car impacts
- * on foot, and the BUSTED meter filling while a unit has the player cornered.
- */
+/** Per-frame cause and effect while playing: crimes, impacts, BUSTED meter. */
 function updateConsequences(dt) {
   if (mode === 'car' && activeCar) {
-    // Crimes at the wheel: ramming the law, and smashing into traffic at speed.
     for (const unit of police.cars) {
       const d = Math.hypot(
         unit.group.position.x - activeCar.group.position.x,
@@ -495,22 +483,19 @@ function updatePlaying(dt) {
     updateCar(activeCar, input, dt, world);
   }
 
-  // Health creeps back once the player has gone a while without taking a hit.
   if (health > 0 && health < START_HEALTH && elapsed - lastDamageAt > HEALTH.regenDelay) {
     health = Math.min(START_HEALTH, health + HEALTH.regenRate * dt);
   }
 
-  // HUD: vitals, the heat as filled and empty stars, and a hint that follows context.
   healthEl.style.width = `${health}%`;
   healthEl.style.background = health < 30 ? '#e5534b' : '';
   moneyEl.textContent = `$${money}`;
-  wantedEl.textContent = wanted.level > 0
+  wantedEl.textContent = (wanted.level > 0
     ? '★'.repeat(wanted.level) + '☆'.repeat(5 - wanted.level)
-    : '';
+    : '') + (police.heliActive ? ' 🚁' : '');
   bustedWrap.style.display = bustedMeter > 0.02 ? 'block' : 'none';
   bustedFill.style.width = `${bustedMeter * 100}%`;
 
-  // The job on the table, with its clock when it has one.
   const objective = missions.objectiveText || taxi.hudText();
   if (objective) {
     const t = missions.timerLeft;
@@ -526,7 +511,6 @@ function updatePlaying(dt) {
   weaponEl.textContent = weapons.hudText();
   crossEl.style.display = weapons.weapon === 'pistol' && mode === 'foot' ? 'block' : 'none';
 
-  // Race clock (or the 3-2-1-GO), and the district standing where the player stands.
   const raceText = races.hudText();
   raceEl.textContent = raceText;
   raceEl.style.display = raceText ? 'block' : 'none';
@@ -553,7 +537,6 @@ function updatePlaying(dt) {
 
 function updateCamera(dt) {
   if (state === 'title') {
-    // A slow orbit above the harbour city behind the title.
     const angle = elapsed * 0.05;
     camera.position.set(Math.sin(angle) * 125, 58, Math.cos(angle) * 125 + 10);
     camera.lookAt(0, 0, 16);
@@ -580,7 +563,6 @@ function updateCamera(dt) {
   camera.lookAt(pos.x, pos.y + 1.6, pos.z);
 }
 
-// --- Minimap: the whole city on a 180x180 canvas, north (-Z) up. ---
 const MAP = { minX: -210, minZ: -190, size: 420 };
 function mapPoint(x, z) {
   return [((x - MAP.minX) / MAP.size) * 180, ((z - MAP.minZ) / MAP.size) * 180];
@@ -591,7 +573,6 @@ function drawMinimap() {
   g.fillStyle = '#232a35';
   g.fillRect(0, 0, 180, 180);
 
-  // Water along the bottom, then the quay strip above it.
   const [, waterY] = mapPoint(0, CITY.waterStart);
   g.fillStyle = '#16456b';
   g.fillRect(0, waterY, 180, 180 - waterY);
@@ -599,7 +580,6 @@ function drawMinimap() {
   g.fillStyle = '#4a5058';
   g.fillRect(0, quayY, 180, waterY - quayY);
 
-  // The district the player stands in, tinted faintly so the map reads by area.
   const [qx] = mapPoint(-36, 0);
   const [mx] = mapPoint(36, 0);
   const [, qy] = mapPoint(0, 108);
@@ -610,7 +590,6 @@ function drawMinimap() {
   else if (d.id === 'marina') g.fillRect(mx, 0, 180 - mx, qy);
   else g.fillRect(qx, 0, mx - qx, qy);
 
-  // Roads as light lines on both axes.
   g.strokeStyle = '#79828f';
   g.lineWidth = Math.max(2, (CITY.roadWidth / MAP.size) * 180);
   g.beginPath();
@@ -624,14 +603,12 @@ function drawMinimap() {
   }
   g.stroke();
 
-  // Parked cars as amber dots.
   g.fillStyle = '#ffb347';
   for (const car of cars) {
     const [px, py] = mapPoint(car.group.position.x, car.group.position.z);
     g.fillRect(px - 1.5, py - 1.5, 3, 3);
   }
 
-  // Traffic cars as smaller grey dots, pedestrians as tiny faint ones.
   g.fillStyle = '#9aa3ad';
   for (const car of trafficCars) {
     const [px, py] = mapPoint(car.group.position.x, car.group.position.z);
@@ -643,14 +620,12 @@ function drawMinimap() {
     g.fillRect(px - 0.75, py - 0.75, 1.5, 1.5);
   }
 
-  // Police units as blue dots, big enough to plan an escape around.
   g.fillStyle = '#3f8cff';
   for (const unit of police.cars) {
     const [px, py] = mapPoint(unit.group.position.x, unit.group.position.z);
     g.fillRect(px - 1.5, py - 1.5, 3, 3);
   }
 
-  // The job: Marisol's marker, or wherever the current work points, in gold.
   for (const blip of missions.mapBlips()) {
     const [bx, by] = mapPoint(blip.x, blip.z);
     g.beginPath();
@@ -662,7 +637,6 @@ function drawMinimap() {
     g.stroke();
   }
 
-  // Street races: cyan dots at the start rings, a ring around the next checkpoint.
   for (const blip of races.mapBlips()) {
     const [bx, by] = mapPoint(blip.x, blip.z);
     g.beginPath();
@@ -674,7 +648,6 @@ function drawMinimap() {
     g.stroke();
   }
 
-  // Taxi: an amber dot for the waiting passenger, a ring for the drop-off.
   for (const blip of taxi.mapBlips()) {
     const [bx, by] = mapPoint(blip.x, blip.z);
     g.beginPath();
@@ -686,14 +659,12 @@ function drawMinimap() {
     g.stroke();
   }
 
-  // Harbour stashes still out there, as small green dots.
   g.fillStyle = '#7dff8a';
   for (const blip of stashes.mapBlips()) {
     const [bx, by] = mapPoint(blip.x, blip.z);
     g.fillRect(bx - 1.25, by - 1.25, 2.5, 2.5);
   }
 
-  // The player (or the driven car) as a white arrow rotated by facing.
   const { pos, heading } = focus();
   const [px, py] = mapPoint(pos.x, pos.z);
   g.save();
@@ -738,10 +709,12 @@ const SUN_DUSK = new THREE.Color(0xff8033);
 const LAMP_DAY = new THREE.Color(0x8a6f45);
 const LAMP_DUSK = new THREE.Color(0xffca7a);
 const skyNow = new THREE.Color();
+let dayK = 0; // 0 afternoon → 1 dusk (drives the heli searchlight, too)
 
 function updateDayCycle() {
   const phase = (elapsed % DAY.cycleSeconds) / DAY.cycleSeconds;
   const k = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2); // 0 afternoon → 1 dusk → 0 again
+  dayK = k;
   skyNow.copy(SKY_DAY).lerp(SKY_DUSK, k);
   scene.background.copy(skyNow);
   scene.fog.color.copy(skyNow);
@@ -752,7 +725,6 @@ function updateDayCycle() {
   world.lampMaterial.color.copy(LAMP_DAY).lerp(LAMP_DUSK, k);
 }
 
-// --- Mission bookkeeping: the module reports, main.js pays, punishes, and plays. ---
 let lastCardSeq = 0;
 let cardTimer = null;
 
@@ -867,13 +839,14 @@ function togglePause() {
   announce(paused ? 'Paused.' : 'Playing.');
 }
 
-// A debug and test hook.
 window.__game = {
   get state() { return state; },
   get mode() { return mode; },
   get wanted() { return wanted.level; },
   setWanted(level) { setWanted(wanted, level); },
   get policeCount() { return police.cars.length; },
+  get heli() { return police.heliActive; },
+  get heliPos() { return police.heliPos; },
   get health() { return health; },
   get money() { return money; },
   get bustedMeter() { return bustedMeter; },
@@ -926,13 +899,11 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
-  // Pause and mute are read straight off the press queue, before anything consumes it.
   if (state === 'playing' && (wasPressed('Escape') || wasPressed('KeyP'))) togglePause();
   if (wasPressed('KeyM')) announce(audio.toggleMute() ? 'Sound muted. M to unmute.' : 'Sound on.');
   if (!paused) elapsed += dt;
   if (state === 'playing' && !paused) updatePlaying(dt);
-  // Traffic and pedestrians live in both states: the city stays alive behind the
-  // title screen. Police units join the shared car list so traffic gives them room.
+  // Traffic and pedestrians stay alive behind the title screen.
   const lifeCtx = {
     world,
     cars: [...allCars, ...police.cars],
@@ -965,8 +936,8 @@ function frame(now) {
       viewDir: { x: -Math.sin(camYaw), z: -Math.cos(camYaw) },
       now: elapsed,
       wanted: wanted.level,
+      dark: dayK,
     });
-    // The heat fades only while no unit can actually see the player.
     const seen = police.cars.some((unit) => {
       const p = unit.group.position;
       return Math.hypot(p.x - f.pos.x, p.z - f.pos.z) < POLICE.sightRange
@@ -974,7 +945,6 @@ function frame(now) {
     });
     updateWanted(wanted, dt, seen);
     updateConsequences(dt);
-    // Marisol's clock only ticks while the run does: title, end cards, and pause freeze it.
     missions.update(dt, {
       pos: f.pos,
       mode,
