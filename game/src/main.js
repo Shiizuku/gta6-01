@@ -17,6 +17,8 @@ import { spawnPedestrians, startlePedestrian, updatePedestrians } from './pedest
 import { createPoliceForce } from './police.js';
 import { createWanted, hasLineOfSight, reportCrime, setWanted, updateWanted } from './wanted.js';
 import { createMissions, MARISOL } from './missions.js';
+import { createRaces } from './races.js';
+import { createStanding, districtAt } from './standing.js';
 import { clearSave, loadSave, writeSave } from './save.js';
 import { createAudio } from './audio.js';
 import { createPlayer, turnToward, updatePlayer } from './player.js';
@@ -39,6 +41,9 @@ const endcardEl = document.getElementById('endcard');
 const endTitleEl = document.getElementById('endtitle');
 const endSubEl = document.getElementById('endsub');
 const hintEl = document.getElementById('hint');
+const raceEl = document.getElementById('racetimer');
+const districtEl = document.getElementById('district');
+const standFillEl = document.getElementById('standfill');
 const objectiveEl = document.getElementById('objective');
 const missioncardEl = document.getElementById('missioncard');
 const mcardTitleEl = document.getElementById('mcardtitle');
@@ -94,6 +99,8 @@ const police = createPoliceForce(scene, world, createRandom(seed * 5557 + 3));
 
 // Work, memory, and noise: Marisol's job chain, the saved run, the pocket synth.
 const missions = createMissions(scene, cars);
+const standing = createStanding();
+const races = createRaces(scene, standing);
 const audio = createAudio();
 let paused = false;
 let saveTimer = 0;
@@ -154,6 +161,8 @@ function applySave(data) {
   money = data.money;
   health = Math.min(START_HEALTH, Math.max(1, data.health));
   missions.setProgress(data.missionsCompleted);
+  races.setResults(data.races);
+  standing.setValues(data.standing);
   if (data.seed !== seed || !data.player) return; // Another city's save: keep the vitals, spawn fresh.
   if (data.car && allCars[data.car.index]) {
     const car = allCars[data.car.index];
@@ -185,6 +194,8 @@ function saveNow() {
     health: Math.round(health),
     missionsCompleted: missions.progress,
     storyDone: missions.storyDone,
+    races: races.serialize(),
+    standing: standing.serialize(),
     seed,
     player: { x: f.pos.x, z: f.pos.z, heading: player.heading },
     car: activeCar
@@ -416,6 +427,11 @@ function updatePlaying(dt) {
     }
   }
 
+  // E at a cyan start ring, while driving, joins that street race.
+  if (wasPressed('KeyE') && mode === 'car' && races.tryStart(focus().pos, true)) {
+    audio.chime();
+  }
+
   if (mode === 'foot') {
     // WASD relative to where the camera is looking (its ground-plane forward).
     const forward = { x: -Math.sin(camYaw), z: -Math.cos(camYaw) };
@@ -459,11 +475,14 @@ function updatePlaying(dt) {
       player.parts.armR.rotation.x = -2.0 * swing;
     }
   } else if (activeCar) {
-    const input = {
-      throttle: (isDown('KeyW') || isDown('ArrowUp') ? 1 : 0) - (isDown('KeyS') || isDown('ArrowDown') ? 1 : 0),
-      steer: (isDown('KeyD') || isDown('ArrowRight') ? 1 : 0) - (isDown('KeyA') || isDown('ArrowLeft') ? 1 : 0),
-      brake: isDown('Space'),
-    };
+    // The 3-2-1 countdown holds the car still: no throttle until GO.
+    const input = races.countdownActive
+      ? { throttle: 0, steer: 0, brake: true }
+      : {
+        throttle: (isDown('KeyW') || isDown('ArrowUp') ? 1 : 0) - (isDown('KeyS') || isDown('ArrowDown') ? 1 : 0),
+        steer: (isDown('KeyD') || isDown('ArrowRight') ? 1 : 0) - (isDown('KeyA') || isDown('ArrowLeft') ? 1 : 0),
+        brake: isDown('Space'),
+      };
     updateCar(activeCar, input, dt, world);
   }
 
@@ -495,8 +514,20 @@ function updatePlaying(dt) {
     objectiveEl.textContent = '';
   }
 
+  // Race clock (or the 3-2-1-GO), and the district standing where the player stands.
+  const raceText = races.hudText();
+  raceEl.textContent = raceText;
+  raceEl.style.display = raceText ? 'block' : 'none';
+  const here = focus().pos;
+  const hereDistrict = districtAt(here.x, here.z);
+  districtEl.textContent = standing.hudText(here.x, here.z);
+  standFillEl.style.width = `${standing.value(hereDistrict.id)}%`;
+
   if (!missions.activeName && missions.nearStart(focus().pos)) hintEl.textContent = 'Step in — Marisol has work for you';
-  else if (mode === 'car') hintEl.textContent = 'F — exit car · Space — handbrake';
+  else if (mode === 'car' && !races.activeName && races.nearStart(focus().pos)) {
+    const race = races.nearStart(focus().pos);
+    hintEl.textContent = `E — start ${race.name} ($${race.reward})`;
+  } else if (mode === 'car') hintEl.textContent = 'F — exit car · Space — handbrake';
   else if (nearestCar(3.5)) hintEl.textContent = 'F — enter car · J — punch';
   else if (pedestrians.some((ped) => Math.hypot(
     ped.group.position.x - player.group.position.x,
@@ -554,6 +585,17 @@ function drawMinimap() {
   g.fillStyle = '#4a5058';
   g.fillRect(0, quayY, 180, waterY - quayY);
 
+  // The district the player stands in, tinted faintly so the map reads by area.
+  const [qx] = mapPoint(-36, 0);
+  const [mx] = mapPoint(36, 0);
+  const [, qy] = mapPoint(0, 108);
+  const d = districtAt(focus().pos.x, focus().pos.z);
+  g.fillStyle = 'rgba(53, 224, 255, 0.09)';
+  if (d.id === 'the-quay') g.fillRect(0, qy, 180, 180 - qy);
+  else if (d.id === 'old-town') g.fillRect(0, 0, qx, qy);
+  else if (d.id === 'marina') g.fillRect(mx, 0, 180 - mx, qy);
+  else g.fillRect(qx, 0, mx - qx, qy);
+
   // Roads as light lines on both axes.
   g.strokeStyle = '#79828f';
   g.lineWidth = Math.max(2, (CITY.roadWidth / MAP.size) * 180);
@@ -603,6 +645,18 @@ function drawMinimap() {
     g.fill();
     g.lineWidth = 1;
     g.strokeStyle = 'rgba(10, 10, 10, 0.75)';
+    g.stroke();
+  }
+
+  // Street races: cyan dots at the start rings, a ring around the next checkpoint.
+  for (const blip of races.mapBlips()) {
+    const [bx, by] = mapPoint(blip.x, blip.z);
+    g.beginPath();
+    g.arc(bx, by, blip.kind === 'checkpoint' ? 5 : 3, 0, Math.PI * 2);
+    g.fillStyle = blip.kind === 'checkpoint' ? 'rgba(53, 224, 255, 0.35)' : '#35e0ff';
+    g.fill();
+    g.lineWidth = 1;
+    g.strokeStyle = '#35e0ff';
     g.stroke();
   }
 
@@ -685,6 +739,8 @@ function drainMissionEvents() {
   for (const event of missions.events) {
     if (event.type === 'complete') {
       money += event.payout;
+      // The job ends where the player stands: that district remembers the work.
+      standing.addStanding(districtAt(focus().pos.x, focus().pos.z).id, 8);
       audio.jingle();
       saveNow();
       announce(`${event.name} complete. +$${event.payout}.`);
@@ -701,6 +757,27 @@ function drainMissionEvents() {
     }
   }
   missions.events.length = 0;
+}
+
+/** Race bookkeeping: main.js pays the win, credits the district, and saves. */
+function drainRaceEvents() {
+  for (const event of races.events) {
+    if (event.type === 'win') {
+      money += event.payout;
+      standing.addStanding(districtAt(event.district.x, event.district.z).id, 6);
+      audio.jingle();
+      saveNow();
+      const t = event.time.toFixed(1);
+      announce(`${event.name} won in ${t}s — +$${event.payout}${event.isBest ? ' (best time!)' : ''}.`);
+    } else if (event.type === 'start') {
+      announce(`${event.name}: 3-2-1-GO — chase the cyan checkpoints.`);
+    } else if (event.type === 'checkpoint') {
+      audio.chime();
+    } else if (event.type === 'cancel') {
+      announce(`${event.name} abandoned.`);
+    }
+  }
+  races.events.length = 0;
 }
 
 function togglePause() {
@@ -727,6 +804,11 @@ window.__game = {
       objective: missions.objectiveText,
     };
   },
+  get races() {
+    return { active: races.activeName, best: races.best, wins: races.wins };
+  },
+  get standing() { return standing.serialize(); },
+  get raceDefs() { return races.defs; },
   get paused() { return paused; },
   get hasSave() { return !!loadSave(); },
   get marisol() { return MARISOL; },
@@ -807,6 +889,8 @@ function frame(now) {
       registerCar: (car) => { allCars.push(car); },
     });
     drainMissionEvents();
+    races.update(dt, { pos: f.pos, inCar: mode === 'car' });
+    drainRaceEvents();
     saveTimer += dt;
     if (saveTimer >= 15) {
       saveTimer = 0;
