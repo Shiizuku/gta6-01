@@ -10,6 +10,8 @@ import { CAMERA, CITY, START_HEALTH, START_MONEY } from './config.js';
 import { createRandom } from './random.js';
 import { buildWorld, circleHits } from './world.js';
 import { spawnParkedCars, updateCar } from './cars.js';
+import { claimCar, releaseCar, spawnTraffic, updateTraffic } from './traffic.js';
+import { spawnPedestrians, updatePedestrians } from './pedestrians.js';
 import { createPlayer, turnToward, updatePlayer } from './player.js';
 import { endFrame, isDown, wasPressed } from './input.js';
 
@@ -56,6 +58,15 @@ if (onVerticalRoad) {
 }
 const player = createPlayer(scene, spawnX, spawnZ);
 player.heading = firstCar.heading + Math.PI;
+
+// The living city: self-driving traffic on the road grid and pedestrians on the
+// sidewalks. Traffic spawns keep their distance from the parked cars and the player.
+const trafficCars = spawnTraffic(scene, createRandom(seed * 104729 + 7), world, [
+  ...cars.map((car) => car.group.position),
+  player.group.position,
+]);
+const pedestrians = spawnPedestrians(scene, createRandom(seed * 31337 + 101));
+const allCars = [...cars, ...trafficCars];
 
 let state = 'title'; // 'title' | 'playing'
 let mode = 'foot'; // 'foot' | 'car'
@@ -105,7 +116,9 @@ function nearestCar(maxDist) {
   const pos = player.group.position;
   let best = null;
   let bestDist = maxDist;
-  for (const car of cars) {
+  for (const car of allCars) {
+    // A traffic car can only be borrowed while it is stopped or crawling.
+    if (car.ai && Math.abs(car.speed) > 1.5) continue;
     const d = Math.hypot(car.group.position.x - pos.x, car.group.position.z - pos.z);
     if (d < bestDist) {
       bestDist = d;
@@ -118,6 +131,7 @@ function nearestCar(maxDist) {
 function enterCar(car) {
   activeCar = car;
   mode = 'car';
+  claimCar(car);
   player.group.visible = false;
   camDist = CAMERA.carDistance;
   announce('Driving. F gets out.');
@@ -138,6 +152,7 @@ function exitCar() {
   player.group.position.set(spot.x, 0, spot.z);
   player.heading = car.heading;
   player.group.visible = true;
+  releaseCar(car, elapsed);
   activeCar = null;
   mode = 'foot';
   camDist = CAMERA.footDistance;
@@ -263,6 +278,18 @@ function drawMinimap() {
     g.fillRect(px - 1.5, py - 1.5, 3, 3);
   }
 
+  // Traffic cars as smaller grey dots, pedestrians as tiny faint ones.
+  g.fillStyle = '#9aa3ad';
+  for (const car of trafficCars) {
+    const [px, py] = mapPoint(car.group.position.x, car.group.position.z);
+    g.fillRect(px - 1.25, py - 1.25, 2.5, 2.5);
+  }
+  g.fillStyle = 'rgba(205, 215, 225, 0.5)';
+  for (const ped of pedestrians) {
+    const [px, py] = mapPoint(ped.group.position.x, ped.group.position.z);
+    g.fillRect(px - 0.75, py - 0.75, 1.5, 1.5);
+  }
+
   // The player (or the driven car) as a white arrow rotated by facing. On the map,
   // facing (sin h, cos h) in world XZ becomes the canvas direction (sin h, cos h).
   const { pos, heading } = focus();
@@ -309,6 +336,18 @@ function frame(now) {
   last = now;
   elapsed += dt;
   if (state === 'playing') updatePlaying(dt);
+  // Traffic and pedestrians live in both states: the city stays alive behind the
+  // title screen, orbiting camera and all.
+  const lifeCtx = {
+    world,
+    cars: allCars,
+    pedestrians,
+    playerCar: activeCar,
+    playerPos: mode === 'foot' ? player.group.position : null,
+    now: elapsed,
+  };
+  updateTraffic(trafficCars, dt, lifeCtx);
+  updatePedestrians(pedestrians, dt, lifeCtx);
   updateCamera(dt);
   drawMinimap();
   renderer.render(scene, camera);

@@ -6,7 +6,7 @@
 import { CAR, CITY } from './config.js';
 import { moveWithCollision } from './world.js';
 
-const PAINT = [0xc23b2e, 0x2e6fc2, 0xd9d9d9, 0x30343c, 0x3fae6a, 0xd9a441, 0x7a4fa3, 0xb8b0a4, 0x845c2c, 0x39665e];
+export const PAINT = [0xc23b2e, 0x2e6fc2, 0xd9d9d9, 0x30343c, 0x3fae6a, 0xd9a441, 0x7a4fa3, 0xb8b0a4, 0x845c2c, 0x39665e];
 
 const glassMaterial = new THREE.MeshLambertMaterial({ color: 0x10151f });
 const tyreMaterial = new THREE.MeshLambertMaterial({ color: 0x14161a });

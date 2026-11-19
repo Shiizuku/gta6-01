@@ -49,5 +49,31 @@ export const CAMERA = {
   realignDelay: 2.5,
 };
 
+export const TRAFFIC = {
+  /** How many self-driving cars keep the streets busy. */
+  count: 12,
+  /** Cruise speed range; each traffic car picks one speed inside it. */
+  cruiseMin: 8,
+  cruiseMax: 11,
+  /** Lane offset from the road centre line (right-hand traffic). */
+  laneOffset: 2.8,
+  /** Speed a traffic car slows to while it is turning a corner. */
+  turnSpeed: 4.6,
+  /** Seconds after the player hands a traffic car back before it resumes its rounds. */
+  resumeDelay: 3,
+};
+
+export const PED = {
+  /** How many pedestrians walk the sidewalks. */
+  count: 17,
+  /** Collision circle radius on foot. */
+  radius: 0.35,
+  /** Sidewalk strolling speed range; each pedestrian picks one speed inside it. */
+  walkMin: 1.15,
+  walkMax: 1.7,
+  /** Chance, on reaching a block corner, of crossing the road to the next block. */
+  crossChance: 0.25,
+};
+
 export const START_MONEY = 250;
 export const START_HEALTH = 100;
