@@ -12,8 +12,9 @@ Port Azura is a dusk-lit harbour city that never quite sleeps, and Marisol Venn 
 
 - **The city** — a three.js city of 8×8 blocks and roughly 220 procedurally placed buildings with lit dusk windows, street lamps, and a working harbour along one edge: quay, warehouses, crates and open water.
 - **On foot and by car** — walk, sprint and fight on foot; press F to take any parked car, or borrow a traffic car that has stopped. Arcade driving with speed-scaled steering and a handbrake, plus a third-person camera you can orbit and zoom.
+- **Weapons & shops** — pick up a pistol and a bat around the city: the pistol fires a raycast shot on mouse click and spends ammo, the bat (and bare fists) swing on click. Switch weapons with 1 / 2 / Q. Dollar-marked shops sell ammo ($30 for +12, max 48) and health ($50) — walk up on foot and press E.
 - **Living streets** — AI traffic drives the road grid in lanes, turns at intersections, brakes for obstacles and resumes its rounds after you abandon its car; pedestrians stroll the sidewalks, cross at corners, and dodge or flee when things get loud.
-- **Wanted system & police** — crime that is witnessed earns stars (0–5): theft, collisions, brawls. Police units spawn out of sight, navigate the grid to you, and box you in; stay out of their sight to cool the heat down. Get cornered on foot and you are **BUSTED** (−15% of your cash); wreck your health and you are **WASTED** (−10%).
+- **Wanted system & police** — crime that is witnessed earns stars (0–5): theft, collisions, brawls. Police units spawn out of sight, navigate the grid to you, and box you in; stay out of their sight to cool the heat down. At 4 stars a police helicopter joins the chase, circling overhead with a searchlight tracking you, and flies off once the heat drops below 3. Get cornered on foot and you are **BUSTED** (−15% of your cash); wreck your health and you are **WASTED** (−10%).
 - **Missions & story** — an eight-job chain for harbour fixer Marisol Venn, started at the gold marker on the quay: *First Run* ($150), *Hot Property* ($220), *Errand Boy* ($180), *Heat* ($260), *Night Haul* ($400), *Silent Partner* ($300), *Heat Wave* ($380) and *Port Heist* ($600). Finish the story and the chain replays at half pay.
 - **Street races** — three checkpoint races with a 3-2-1-GO countdown, started with E at their cyan rings: *Harbour Sprint* ($150), *Downtown Loop* ($300) and *Marina Dash* ($500). Best times are saved, and winning pays more where the district respects you.
 - **District standing** — four districts (Old Town, Downtown, The Quay, Marina) each track how the city sees you, from Stranger to Legend: missions pay +8 standing where they end, race wins +6, fares and stashes add their own. Reach Respected for +25% race winnings in that district, Legend for +50%.
@@ -30,9 +31,10 @@ Port Azura is a dusk-lit harbour city that never quite sleeps, and Marisol Venn 
 | **Shift** | Sprint (on foot) |
 | **Space** | Handbrake (in a car) |
 | **F** | Enter / exit car |
-| **E** | Start street race (in a car, at a race ring) |
+| **E** | Start street race (in a car, at a race ring) / buy ammo or health (on foot, at a $ shop) |
 | **T** | Accept taxi fare (in a car, near a passenger) |
-| **J** or **mouse click** | Punch |
+| **1 / 2 / Q** | Switch weapon (pistol / bat / cycle weapons) |
+| **J** or **mouse click** | Punch / swing bat / shoot pistol (depends on weapon) |
 | **Mouse drag** | Orbit camera |
 | **Mouse wheel** | Camera zoom |
 | **M** | Mute / unmute |

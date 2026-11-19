@@ -5,11 +5,12 @@
 // /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
 // The game is Neon Harbor: Port Azura, an original open-world crime game: a dusk-lit three.js
 // harbour city (8x8 blocks, ~220 buildings) explored on foot and by car, with AI traffic,
-// pedestrians, a 0-5 star wanted system with police pursuit (BUSTED/WASTED), an eight-mission
-// story chain for the harbour fixer Marisol, three checkpoint street races, district standing
-// across four districts, taxi fares and ten hidden harbour stashes, localStorage saves, a day
-// cycle and synthesized WebAudio sound. The 4 screenshots in screenshots/ are renders of it
-// (the first by name is the cover).
+// pedestrians, a 0-5 star wanted system with police pursuit and a helicopter at 4+ stars
+// (searchlight, orbit) (BUSTED/WASTED), pistol-and-bat weapons with raycast shooting, ammo
+// and health shops, an eight-mission story chain for the harbour fixer Marisol, three
+// checkpoint street races, district standing across four districts, taxi fares and ten
+// hidden harbour stashes, localStorage saves, a day cycle and synthesized WebAudio sound.
+// The 4 screenshots in screenshots/ are renders of it (the first by name is the cover).
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
