@@ -248,5 +248,9 @@ export function buildWorld(scene, rng) {
     roadLines: lines,
     bounds: { minX: -158, maxX: 158, minZ: -158, maxZ: CITY.quayEnd - 3 },
     waterZ: CITY.waterStart,
+    // The day cycle (main.js) drifts these as the light fades toward dusk.
+    sun,
+    hemi,
+    lampMaterial: headMaterial,
   };
 }

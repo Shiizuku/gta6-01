@@ -8,7 +8,7 @@
 // slow orbit of the city; ?shot=play starts in-game beside a parked car. Both set
 // window.__shotReady once the staged frame has painted, like the kit starter did.
 
-import { CAMERA, CITY, HEALTH, PLAYER, POLICE, START_HEALTH, START_MONEY } from './config.js';
+import { CAMERA, CAR, CITY, DAY, HEALTH, PLAYER, POLICE, START_HEALTH, START_MONEY, WANTED } from './config.js';
 import { createRandom } from './random.js';
 import { buildWorld, circleHits, moveWithCollision } from './world.js';
 import { spawnParkedCars, updateCar } from './cars.js';
@@ -16,6 +16,9 @@ import { claimCar, releaseCar, spawnTraffic, updateTraffic } from './traffic.js'
 import { spawnPedestrians, startlePedestrian, updatePedestrians } from './pedestrians.js';
 import { createPoliceForce } from './police.js';
 import { createWanted, hasLineOfSight, reportCrime, setWanted, updateWanted } from './wanted.js';
+import { createMissions, MARISOL } from './missions.js';
+import { clearSave, loadSave, writeSave } from './save.js';
+import { createAudio } from './audio.js';
 import { createPlayer, turnToward, updatePlayer } from './player.js';
 import { endFrame, isDown, wasPressed } from './input.js';
 
@@ -36,6 +39,13 @@ const endcardEl = document.getElementById('endcard');
 const endTitleEl = document.getElementById('endtitle');
 const endSubEl = document.getElementById('endsub');
 const hintEl = document.getElementById('hint');
+const objectiveEl = document.getElementById('objective');
+const missioncardEl = document.getElementById('missioncard');
+const mcardTitleEl = document.getElementById('mcardtitle');
+const mcardLineEl = document.getElementById('mcardline');
+const pausedEl = document.getElementById('paused');
+const startBtn = document.getElementById('start');
+const continueBtn = document.getElementById('continue');
 const minimap = document.getElementById('minimap');
 const mapCtx = minimap.getContext('2d');
 
@@ -81,6 +91,18 @@ const allCars = [...cars, ...trafficCars];
 // Consequences: the heat, the force that answers it, and the player's body.
 const wanted = createWanted();
 const police = createPoliceForce(scene, world, createRandom(seed * 5557 + 3));
+
+// Work, memory, and noise: Marisol's job chain, the saved run, the pocket synth.
+const missions = createMissions(scene, cars);
+const audio = createAudio();
+let paused = false;
+let saveTimer = 0;
+let bootSave = loadSave();
+if (bootSave) {
+  // A returning player gets the choice: pick the old run up, or burn it and start over.
+  continueBtn.classList.remove('hidden');
+  startBtn.textContent = 'NEW GAME';
+}
 let bustedMeter = 0; // 0..1 while a unit has the on-foot player cornered
 let lastDamageAt = -99; // game clock of the last hit taken (drives regeneration)
 let lastHurtAt = -99; // game clock of the last car impact (impact invulnerability)
@@ -127,13 +149,69 @@ function announce(message) {
   status.textContent = message;
 }
 
-function startGame() {
-  state = 'playing';
-  titleEl.classList.add('hidden');
-  announce('Exploring Port Azura on foot. F enters the nearest car.');
+/** Put a saved run back on its feet: wallet, health, story, and where it stood. */
+function applySave(data) {
+  money = data.money;
+  health = Math.min(START_HEALTH, Math.max(1, data.health));
+  missions.setProgress(data.missionsCompleted);
+  if (data.seed !== seed || !data.player) return; // Another city's save: keep the vitals, spawn fresh.
+  if (data.car && allCars[data.car.index]) {
+    const car = allCars[data.car.index];
+    car.group.position.set(data.car.x, 0, data.car.z);
+    car.heading = data.car.heading;
+    car.group.rotation.y = data.car.heading;
+    car.speed = 0;
+    player.group.position.set(data.car.x, 0, data.car.z);
+    activeCar = car;
+    mode = 'car';
+    claimCar(car);
+    player.group.visible = false;
+    camDist = CAMERA.carDistance;
+    camYaw = data.car.heading + Math.PI;
+  } else {
+    player.group.position.set(data.player.x, 0, data.player.z);
+    player.heading = data.player.heading;
+    player.group.rotation.y = data.player.heading;
+    camYaw = data.player.heading + Math.PI;
+  }
 }
 
-document.getElementById('start').addEventListener('click', startGame);
+/** Record the run as it stands. Screenshot staging never saves (it would clobber). */
+function saveNow() {
+  if (shot) return;
+  const f = focus();
+  writeSave({
+    money,
+    health: Math.round(health),
+    missionsCompleted: missions.progress,
+    storyDone: missions.storyDone,
+    seed,
+    player: { x: f.pos.x, z: f.pos.z, heading: player.heading },
+    car: activeCar
+      ? {
+        index: allCars.indexOf(activeCar),
+        x: activeCar.group.position.x,
+        z: activeCar.group.position.z,
+        heading: activeCar.heading,
+      }
+      : null,
+  });
+}
+
+function startGame(withSave = false) {
+  if (withSave && bootSave) applySave(bootSave);
+  state = 'playing';
+  titleEl.classList.add('hidden');
+  audio.unlock(); // The click that got us here is the gesture the audio policy wants.
+  announce(withSave ? 'Welcome back to Port Azura.' : 'Exploring Port Azura on foot. F enters the nearest car.');
+}
+
+startBtn.addEventListener('click', () => {
+  clearSave();
+  bootSave = null;
+  startGame(false);
+});
+continueBtn.addEventListener('click', () => startGame(true));
 
 function nearestCar(maxDist) {
   const pos = player.group.position;
@@ -362,6 +440,7 @@ function updatePlaying(dt) {
       punchAnimT = 0.22;
       const hit = startlePedestrian(pedestrians, player.group.position, player.heading);
       if (hit) {
+        audio.thud();
         const pos = player.group.position;
         const witnessed = pedestrians.some((ped) => ped !== hit && Math.hypot(
           ped.group.position.x - pos.x,
@@ -402,7 +481,22 @@ function updatePlaying(dt) {
     : '';
   bustedWrap.style.display = bustedMeter > 0.02 ? 'block' : 'none';
   bustedFill.style.width = `${bustedMeter * 100}%`;
-  if (mode === 'car') hintEl.textContent = 'F — exit car · Space — handbrake';
+
+  // The job on the table, with its clock when it has one.
+  const objective = missions.objectiveText;
+  if (objective) {
+    const t = missions.timerLeft;
+    objectiveEl.textContent = t != null
+      ? `${objective} — ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
+      : objective;
+    objectiveEl.style.display = 'block';
+  } else {
+    objectiveEl.style.display = 'none';
+    objectiveEl.textContent = '';
+  }
+
+  if (!missions.activeName && missions.nearStart(focus().pos)) hintEl.textContent = 'Step in — Marisol has work for you';
+  else if (mode === 'car') hintEl.textContent = 'F — exit car · Space — handbrake';
   else if (nearestCar(3.5)) hintEl.textContent = 'F — enter car · J — punch';
   else if (pedestrians.some((ped) => Math.hypot(
     ped.group.position.x - player.group.position.x,
@@ -500,6 +594,18 @@ function drawMinimap() {
     g.fillRect(px - 1.5, py - 1.5, 3, 3);
   }
 
+  // The job: Marisol's marker, or wherever the current work points, in gold.
+  for (const blip of missions.mapBlips()) {
+    const [bx, by] = mapPoint(blip.x, blip.z);
+    g.beginPath();
+    g.arc(bx, by, 3.1, 0, Math.PI * 2);
+    g.fillStyle = '#ffd166';
+    g.fill();
+    g.lineWidth = 1;
+    g.strokeStyle = 'rgba(10, 10, 10, 0.75)';
+    g.stroke();
+  }
+
   // The player (or the driven car) as a white arrow rotated by facing. On the map,
   // facing (sin h, cos h) in world XZ becomes the canvas direction (sin h, cos h).
   const { pos, heading } = focus();
@@ -538,6 +644,71 @@ if (shot === 'play') {
   announce('Neon Harbor: Port Azura. Press Start to explore the city.');
 }
 
+// --- The day drifting by: late afternoon melts into dusk and back over six minutes.
+// The sun sinks and warms, the sky deepens, and the street lamps come up as it fades. ---
+const SKY_DAY = new THREE.Color(0x3b4a6b);
+const SKY_DUSK = new THREE.Color(0x252040);
+const SUN_DAY = new THREE.Color(0xffb36b);
+const SUN_DUSK = new THREE.Color(0xff8033);
+const LAMP_DAY = new THREE.Color(0x8a6f45);
+const LAMP_DUSK = new THREE.Color(0xffca7a);
+const skyNow = new THREE.Color();
+
+function updateDayCycle() {
+  const phase = (elapsed % DAY.cycleSeconds) / DAY.cycleSeconds;
+  const k = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2); // 0 afternoon → 1 dusk → 0 again
+  skyNow.copy(SKY_DAY).lerp(SKY_DUSK, k);
+  scene.background.copy(skyNow);
+  scene.fog.color.copy(skyNow);
+  world.sun.color.copy(SUN_DAY).lerp(SUN_DUSK, k);
+  world.sun.intensity = 1.0 - 0.45 * k;
+  world.sun.position.set(-140 + 50 * k, 110 - 68 * k, -60);
+  world.hemi.intensity = 0.55 - 0.23 * k;
+  world.lampMaterial.color.copy(LAMP_DAY).lerp(LAMP_DUSK, k);
+}
+
+// --- Mission bookkeeping: the module reports, main.js pays, punishes, and plays. ---
+let lastCardSeq = 0;
+let cardTimer = null;
+
+function showMissionCard() {
+  const card = missions.card;
+  if (!card) return;
+  mcardTitleEl.textContent = card.title;
+  mcardLineEl.textContent = card.line;
+  missioncardEl.classList.add('show');
+  if (cardTimer) clearTimeout(cardTimer);
+  cardTimer = setTimeout(() => missioncardEl.classList.remove('show'), 6000);
+}
+
+function drainMissionEvents() {
+  for (const event of missions.events) {
+    if (event.type === 'complete') {
+      money += event.payout;
+      audio.jingle();
+      saveNow();
+      announce(`${event.name} complete. +$${event.payout}.`);
+    } else if (event.type === 'steal') {
+      // Marisol's repossession is still, legally speaking, a theft: one star.
+      setWanted(wanted, Math.min(WANTED.maxStars, wanted.level + 1));
+    } else if (event.type === 'setWanted') {
+      setWanted(wanted, event.level);
+    } else if (event.type === 'pickup' || event.type === 'start') {
+      audio.chime();
+    } else if (event.type === 'fail') {
+      audio.fail();
+      announce(`${event.name}: out of time. The job waits at the harbour marker.`);
+    }
+  }
+  missions.events.length = 0;
+}
+
+function togglePause() {
+  paused = !paused;
+  pausedEl.classList.toggle('hidden', !paused);
+  announce(paused ? 'Paused.' : 'Playing.');
+}
+
 // A debug and test hook: read the run's vitals, and raise the heat on demand.
 window.__game = {
   get state() { return state; },
@@ -548,6 +719,25 @@ window.__game = {
   get health() { return health; },
   get money() { return money; },
   get bustedMeter() { return bustedMeter; },
+  get mission() {
+    return {
+      active: missions.activeName,
+      progress: missions.progress,
+      storyDone: missions.storyDone,
+      objective: missions.objectiveText,
+    };
+  },
+  get paused() { return paused; },
+  get hasSave() { return !!loadSave(); },
+  get marisol() { return MARISOL; },
+  get carPositions() {
+    return allCars.map((car) => ({ x: car.group.position.x, z: car.group.position.z }));
+  },
+  saveNow,
+  teleport(x, z) {
+    player.group.position.set(x, 0, z);
+    if (activeCar) activeCar.group.position.set(x, 0, z);
+  },
   start: startGame,
 };
 
@@ -557,8 +747,11 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
-  elapsed += dt;
-  if (state === 'playing') updatePlaying(dt);
+  // Pause and mute are read straight off the press queue, before anything consumes it.
+  if (state === 'playing' && (wasPressed('Escape') || wasPressed('KeyP'))) togglePause();
+  if (wasPressed('KeyM')) announce(audio.toggleMute() ? 'Sound muted. M to unmute.' : 'Sound on.');
+  if (!paused) elapsed += dt;
+  if (state === 'playing' && !paused) updatePlaying(dt);
   // Traffic and pedestrians live in both states: the city stays alive behind the
   // title screen, orbiting camera and all. Police units join the shared car list so
   // traffic gives them room and pedestrians dodge them like any other car.
@@ -571,9 +764,11 @@ function frame(now) {
     now: elapsed,
     events: [],
   };
-  updateTraffic(trafficCars, dt, lifeCtx);
-  updatePedestrians(pedestrians, dt, lifeCtx);
-  if (state === 'playing') {
+  if (!paused) {
+    updateTraffic(trafficCars, dt, lifeCtx);
+    updatePedestrians(pedestrians, dt, lifeCtx);
+  }
+  if (state === 'playing' && !paused) {
     // A pedestrian knocked down by the player's own car is a crime with witnesses
     // built in — the whole street just saw it.
     for (const event of lifeCtx.events) {
@@ -602,7 +797,32 @@ function frame(now) {
     });
     updateWanted(wanted, dt, seen);
     updateConsequences(dt);
+    // Marisol's clock only ticks while the run does: title, BUSTED and WASTED cards,
+    // and the pause overlay all freeze it where it stands.
+    missions.update(dt, {
+      pos: f.pos,
+      mode,
+      car: activeCar,
+      now: elapsed,
+      registerCar: (car) => { allCars.push(car); },
+    });
+    drainMissionEvents();
+    saveTimer += dt;
+    if (saveTimer >= 15) {
+      saveTimer = 0;
+      saveNow();
+    }
   }
+  if (missions.cardSeq !== lastCardSeq) {
+    lastCardSeq = missions.cardSeq;
+    showMissionCard();
+  }
+  updateDayCycle();
+  audio.update({
+    driving: state === 'playing' && mode === 'car' && !paused,
+    speedRatio: activeCar ? Math.abs(activeCar.speed) / CAR.maxSpeed : 0,
+    pursued: state === 'playing' && wanted.level > 0 && police.cars.length > 0,
+  });
   updateCamera(dt);
   drawMinimap();
   renderer.render(scene, camera);

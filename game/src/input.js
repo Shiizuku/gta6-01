@@ -10,6 +10,7 @@ const GAME_KEYS = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
   'ShiftLeft', 'ShiftRight', 'Space', 'KeyF', 'KeyJ', 'Enter',
+  'KeyM', 'KeyP', 'Escape',
 ]);
 
 window.addEventListener('keydown', (event) => {

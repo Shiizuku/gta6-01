@@ -113,5 +113,13 @@ export const HEALTH = {
   regenRate: 7,
 };
 
+export const DAY = {
+  /** Seconds for one full late-afternoon → dusk → late-afternoon lighting loop. */
+  cycleSeconds: 360,
+};
+
+/** localStorage key for the saved run (versioned: bump the suffix to orphan old saves). */
+export const SAVE_KEY = 'neon-harbor-port-azura-save-v1';
+
 export const START_MONEY = 250;
 export const START_HEALTH = 100;
