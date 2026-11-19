@@ -6,7 +6,7 @@
 
 Entered in the make.fun **gta6-01** bounty — "Make GTA 6": https://make.fun/bounty/gta6-01
 
-Port Azura is a dusk-lit harbour city that never quite sleeps, and Marisol Venn — who runs the cranes down at the quay — always has work for someone with a car, quick hands and no questions. **Neon Harbor: Port Azura** is an original open-world crime game that runs entirely in a desktop browser from static files: explore the city on foot or by car, run Marisol's five-job story chain, and try to make money faster than your driving earns you stars — because the Port Azura police are patient, organised, and already on their way.
+Port Azura is a dusk-lit harbour city that never quite sleeps, and Marisol Venn — who runs the cranes down at the quay — always has work for someone with a car, quick hands and no questions. **Neon Harbor: Port Azura** is an original open-world crime game that runs entirely in a desktop browser from static files: explore the city on foot or by car, run Marisol's eight-job story chain, and try to make money faster than your driving earns you stars — because the Port Azura police are patient, organised, and already on their way.
 
 ## Features
 
@@ -30,6 +30,8 @@ Port Azura is a dusk-lit harbour city that never quite sleeps, and Marisol Venn 
 | **Shift** | Sprint (on foot) |
 | **Space** | Handbrake (in a car) |
 | **F** | Enter / exit car |
+| **E** | Start street race (in a car, at a race ring) |
+| **T** | Accept taxi fare (in a car, near a passenger) |
 | **J** or **mouse click** | Punch |
 | **Mouse drag** | Orbit camera |
 | **Mouse wheel** | Camera zoom |
