@@ -1,8 +1,9 @@
 // Pedestrians: the people of Port Azura. Each one strolls the sidewalk ring around a
 // city block, turns its corners, and now and then crosses the road at a corner to
 // continue around the neighbouring block. They are not brave: a moving car that gets
-// close makes them dodge aside and hurry, and the player bumping into one makes them
-// sidestep. Nobody gets hurt — this is crowd life, not combat.
+// close makes them dodge aside and hurry, the player bumping into one makes them
+// sidestep, and a punch sends them fleeing. A fast car knocks one flat — but only
+// for a few seconds; nobody gets permanently hurt in Port Azura.
 //
 // A pedestrian's route lives in { bi, bj, corner }: it is walking the perimeter of
 // block (bi, bj) toward that block's corner number `corner`, where the corners are
@@ -98,6 +99,10 @@ export function spawnPedestrians(scene, rng) {
       dodgeZ: 0,
       dodgeT: 0,
       hurryT: 0,
+      downT: 0,
+      fleeT: 0,
+      fleeX: 0,
+      fleeZ: 0,
       rng,
     });
   }
@@ -129,8 +134,85 @@ function decideNext(ped) {
   ped.target = cornerPoint(ped.bi, ped.bj, ped.corner);
 }
 
+/**
+ * The player swings a fist from `pos` facing `heading`: the nearest pedestrian inside
+ * a short arc ahead of him is startled into fleeing directly away from the blow.
+ * Returns the pedestrian who was hit, or null for a swing at thin air.
+ */
+export function startlePedestrian(peds, pos, heading) {
+  const fx = Math.sin(heading);
+  const fz = Math.cos(heading);
+  let best = null;
+  let bestDist = 1.8;
+  for (const ped of peds) {
+    if (ped.downT > 0) continue;
+    const dx = ped.group.position.x - pos.x;
+    const dz = ped.group.position.z - pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > bestDist) continue;
+    if (d > 0.4 && (dx * fx + dz * fz) / d < 0.35) continue; // outside the swing arc
+    best = ped;
+    bestDist = d;
+  }
+  if (best) {
+    best.fleeT = 2.2;
+    best.fleeX = pos.x;
+    best.fleeZ = pos.z;
+  }
+  return best;
+}
+
+/** Swing the limbs in time with the walk cycle and bob — shared by stroll and flee. */
+function animateWalk(ped, dt, speed) {
+  ped.walkPhase += dt * speed * 2.3;
+  const swing = Math.sin(ped.walkPhase) * 0.5;
+  ped.parts.legL.rotation.x = swing;
+  ped.parts.legR.rotation.x = -swing;
+  ped.parts.armL.rotation.x = -swing * 0.75;
+  ped.parts.armR.rotation.x = swing * 0.75;
+  ped.group.position.y = Math.abs(Math.sin(ped.walkPhase)) * 0.05;
+  ped.group.rotation.y = ped.heading;
+}
+
 function stepPedestrian(ped, dt, ctx) {
   const pos = ped.group.position;
+
+  // Knocked flat by a fast car: lie there a few seconds, then get up and stroll on.
+  // Nobody dies in Port Azura; they just need a moment.
+  if (ped.downT > 0) {
+    ped.downT -= dt;
+    if (ped.downT <= 0) {
+      ped.group.rotation.x = 0;
+      pos.y = 0;
+    }
+    return;
+  }
+  for (const car of ctx.cars) {
+    if (Math.abs(car.speed) < 5) continue;
+    const p = car.group.position;
+    const dx = pos.x - p.x;
+    const dz = pos.z - p.z;
+    if (dx * dx + dz * dz < 2.9) {
+      ped.downT = 3 + ped.rng() * 1.5;
+      ped.group.rotation.x = -Math.PI / 2;
+      pos.y = 0.3;
+      if (ctx.events) ctx.events.push({ type: 'pedHit', byPlayer: car === ctx.playerCar });
+      return;
+    }
+  }
+
+  // Fleeing a punch: straight away from the threat, at a run, until the fright fades.
+  if (ped.fleeT > 0) {
+    ped.fleeT -= dt;
+    const dx = pos.x - ped.fleeX;
+    const dz = pos.z - ped.fleeZ;
+    const d = Math.hypot(dx, dz) || 1;
+    const speed = ped.speed * 2.3;
+    ped.heading = turnToward(ped.heading, Math.atan2(dx / d, dz / d), dt * 10);
+    moveWithCollision(pos, PED.radius, (dx / d) * speed * dt, (dz / d) * speed * dt, ctx.world.colliders, ctx.world.bounds);
+    animateWalk(ped, dt, speed);
+    return;
+  }
 
   // Reactions: dodge away from any moving car that gets close (and hurry for a
   // moment), and sidestep when the player on foot walks straight into them.
@@ -189,21 +271,18 @@ function stepPedestrian(ped, dt, ctx) {
   if (vlen > 0.05) {
     ped.heading = turnToward(ped.heading, Math.atan2(vx, vz), dt * 10);
     moveWithCollision(pos, PED.radius, vx * dt, vz * dt, ctx.world.colliders, ctx.world.bounds);
-    ped.walkPhase += dt * vlen * 2.3;
+    animateWalk(ped, dt, vlen);
+  } else {
+    ped.group.rotation.y = ped.heading;
   }
-  const swing = Math.sin(ped.walkPhase) * 0.5;
-  ped.parts.legL.rotation.x = swing;
-  ped.parts.legR.rotation.x = -swing;
-  ped.parts.armL.rotation.x = -swing * 0.75;
-  ped.parts.armR.rotation.x = swing * 0.75;
-  pos.y = Math.abs(Math.sin(ped.walkPhase)) * 0.05;
-  ped.group.rotation.y = ped.heading;
 }
 
 /**
- * Advance every pedestrian by dt. ctx is { world, cars, playerPos }: the world for
- * collisions, every car in the city (they dodge the moving ones), and the player's
- * on-foot position (or null while driving).
+ * Advance every pedestrian by dt. ctx is { world, cars, playerPos, playerCar,
+ * events }: the world for collisions, every car in the city (they dodge the moving
+ * ones and are knocked down by the fast ones), the player's on-foot position (or
+ * null while driving), the car he is driving (or null), and an array that knockdown
+ * events are pushed onto as { type: 'pedHit', byPlayer }.
  */
 export function updatePedestrians(peds, dt, ctx) {
   for (const ped of peds) stepPedestrian(ped, dt, ctx);

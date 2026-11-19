@@ -22,6 +22,18 @@
   #minimap { position: absolute; left: 16px; bottom: 16px; width: 180px; height: 180px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 4px; background: #0d1420; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); }
   #hint { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); font-size: 16px; font-weight: 600; color: #eef1f5; background: rgba(8, 12, 20, 0.55); padding: 5px 14px; border-radius: 14px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); white-space: nowrap; }
 
+  #bustedwrap { position: absolute; left: 50%; top: 15%; transform: translateX(-50%); width: 250px; display: none; text-align: center; }
+  #bustedlabel { font-size: 15px; font-weight: 800; letter-spacing: 5px; color: #ff6b5e; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); margin-bottom: 5px; }
+  #bustedbar { height: 11px; background: rgba(8, 12, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 3px; overflow: hidden; }
+  #bustedfill { height: 100%; width: 0%; background: #e5534b; }
+
+  #endcard { position: fixed; inset: 0; z-index: 11; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(26, 8, 8, 0.45) 0%, rgba(10, 6, 10, 0.85) 100%); text-align: center; cursor: pointer; }
+  #endcard.hidden { display: none; }
+  #endcard h1 { margin: 0; font-size: 84px; font-weight: 900; letter-spacing: 16px; color: #e5534b; text-shadow: 0 0 22px rgba(229, 83, 75, 0.55), 0 3px 0 #571c18; }
+  #endcard.wasted h1 { color: #c8cfdb; text-shadow: 0 0 22px rgba(160, 175, 200, 0.4), 0 3px 0 #2c3242; }
+  #endcard p { margin: 16px 0 0; font-size: 17px; color: #e6ebf2; max-width: 520px; line-height: 1.5; }
+  #endcard .dismiss { font-size: 14px; color: #9aa5b5; letter-spacing: 1px; }
+
   #title { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(10, 14, 26, 0.25) 0%, rgba(10, 14, 26, 0.78) 100%); text-align: center; }
   #title.hidden { display: none; }
   #title h1 { margin: 0; font-size: 76px; font-weight: 900; letter-spacing: 10px; color: #ffd166; text-shadow: 0 0 18px rgba(255, 122, 26, 0.75), 0 0 46px rgba(255, 62, 130, 0.5), 0 3px 0 #b23a48; }
@@ -44,7 +56,14 @@
   </div>
   <div id="wanted" aria-hidden="true"></div>
   <canvas id="minimap" width="180" height="180"></canvas>
+  <div id="bustedwrap"><div id="bustedlabel">BUSTED</div><div id="bustedbar"><div id="bustedfill"></div></div></div>
   <div id="hint"></div>
+</div>
+
+<div id="endcard" class="hidden">
+  <h1 id="endtitle">BUSTED</h1>
+  <p id="endsub"></p>
+  <p class="dismiss">Click or press any key to continue</p>
 </div>
 
 <div id="title">
@@ -53,7 +72,8 @@
   <p class="tag">An original open-world driving game in a dusk-lit harbour city.</p>
   <ul>
     <li><b>WASD</b> — walk / drive &nbsp;·&nbsp; <b>Shift</b> — sprint</li>
-    <li><b>F</b> — enter / exit car</li>
+    <li><b>F</b> — enter / exit car &nbsp;·&nbsp; <b>J</b> — punch</li>
+    <li>Crime earns <b>stars</b> — lose the police to lose the heat</li>
     <li><b>Mouse drag</b> — orbit camera &nbsp;·&nbsp; <b>Wheel</b> — zoom</li>
   </ul>
   <button id="start" type="button">START</button>

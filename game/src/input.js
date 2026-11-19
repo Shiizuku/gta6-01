@@ -9,7 +9,7 @@ const pressed = new Set();
 const GAME_KEYS = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-  'ShiftLeft', 'ShiftRight', 'Space', 'KeyF', 'Enter',
+  'ShiftLeft', 'ShiftRight', 'Space', 'KeyF', 'KeyJ', 'Enter',
 ]);
 
 window.addEventListener('keydown', (event) => {

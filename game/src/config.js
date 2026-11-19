@@ -75,5 +75,43 @@ export const PED = {
   crossChance: 0.25,
 };
 
+export const WANTED = {
+  /** The police never care more than this many stars' worth. */
+  maxStars: 5,
+  /** Seconds with no police line-of-sight on the player before one star fades. */
+  decaySeconds: 20,
+};
+
+export const POLICE = {
+  /** Most police cars on the street at once, however hot the chase gets. */
+  maxActive: 4,
+  /** Pursuit cruise speed: faster than traffic, slower than a fleeing player car. */
+  cruise: 15.5,
+  /** Speed a police car slows to while rounding a corner. */
+  cornerSpeed: 6.5,
+  /** Spawns land at least / at most this far from the player, in metres. */
+  spawnMinDist: 55,
+  spawnMaxDist: 120,
+  /** Seconds between reinforcements rolling in. */
+  spawnInterval: 0.8,
+  /** A police car this close with a clear view counts as seeing the player. */
+  sightRange: 45,
+  /** Inside this distance, grid navigation gives way to a direct chase. */
+  directRange: 22,
+  /** A direct chase falls back to the road grid beyond this distance. */
+  directExit: 34,
+  /** An on-foot player with a police car inside this range is being cornered. */
+  bustRange: 6,
+  /** Seconds cornered before the player is BUSTED. */
+  bustSeconds: 3,
+};
+
+export const HEALTH = {
+  /** Seconds without taking damage before health starts recovering. */
+  regenDelay: 8,
+  /** Health points recovered per second once recovery starts. */
+  regenRate: 7,
+};
+
 export const START_MONEY = 250;
 export const START_HEALTH = 100;

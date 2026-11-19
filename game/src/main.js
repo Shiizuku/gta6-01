@@ -1,17 +1,21 @@
 // Neon Harbor: Port Azura — boot, the game loop, and everything that ties the pieces
 // together: the title/playing state machine, the third-person orbit camera, entering
-// and leaving cars, the HUD, and the minimap.
+// and leaving cars, the HUD, and the minimap. Session 3 wires the consequences in
+// here: the wanted level and its crimes, the police force, fists, health, and the
+// BUSTED / WASTED cards that end a run at the harbour.
 //
 // ?seed=N fixes the city layout (default 1). ?shot=start stages the title screen over a
 // slow orbit of the city; ?shot=play starts in-game beside a parked car. Both set
 // window.__shotReady once the staged frame has painted, like the kit starter did.
 
-import { CAMERA, CITY, START_HEALTH, START_MONEY } from './config.js';
+import { CAMERA, CITY, HEALTH, PLAYER, POLICE, START_HEALTH, START_MONEY } from './config.js';
 import { createRandom } from './random.js';
-import { buildWorld, circleHits } from './world.js';
+import { buildWorld, circleHits, moveWithCollision } from './world.js';
 import { spawnParkedCars, updateCar } from './cars.js';
 import { claimCar, releaseCar, spawnTraffic, updateTraffic } from './traffic.js';
-import { spawnPedestrians, updatePedestrians } from './pedestrians.js';
+import { spawnPedestrians, startlePedestrian, updatePedestrians } from './pedestrians.js';
+import { createPoliceForce } from './police.js';
+import { createWanted, hasLineOfSight, reportCrime, setWanted, updateWanted } from './wanted.js';
 import { createPlayer, turnToward, updatePlayer } from './player.js';
 import { endFrame, isDown, wasPressed } from './input.js';
 
@@ -25,6 +29,12 @@ const status = document.getElementById('status');
 const titleEl = document.getElementById('title');
 const moneyEl = document.getElementById('money');
 const healthEl = document.getElementById('healthfill');
+const wantedEl = document.getElementById('wanted');
+const bustedWrap = document.getElementById('bustedwrap');
+const bustedFill = document.getElementById('bustedfill');
+const endcardEl = document.getElementById('endcard');
+const endTitleEl = document.getElementById('endtitle');
+const endSubEl = document.getElementById('endsub');
 const hintEl = document.getElementById('hint');
 const minimap = document.getElementById('minimap');
 const mapCtx = minimap.getContext('2d');
@@ -68,7 +78,18 @@ const trafficCars = spawnTraffic(scene, createRandom(seed * 104729 + 7), world, 
 const pedestrians = spawnPedestrians(scene, createRandom(seed * 31337 + 101));
 const allCars = [...cars, ...trafficCars];
 
-let state = 'title'; // 'title' | 'playing'
+// Consequences: the heat, the force that answers it, and the player's body.
+const wanted = createWanted();
+const police = createPoliceForce(scene, world, createRandom(seed * 5557 + 3));
+let bustedMeter = 0; // 0..1 while a unit has the on-foot player cornered
+let lastDamageAt = -99; // game clock of the last hit taken (drives regeneration)
+let lastHurtAt = -99; // game clock of the last car impact (impact invulnerability)
+let punchCooldown = 0;
+let punchAnimT = 0;
+let mousePunch = false;
+let endKind = null; // 'busted' | 'wasted' while the end card is up
+
+let state = 'title'; // 'title' | 'playing' | 'over'
 let mode = 'foot'; // 'foot' | 'car'
 let activeCar = null;
 let health = START_HEALTH;
@@ -80,11 +101,13 @@ let camDist = CAMERA.footDistance;
 let lastDragAt = -10;
 let elapsed = 0;
 
-// --- Camera orbit input: drag to orbit, wheel to zoom. ---
+// --- Camera orbit input: drag to orbit, wheel to zoom. A press while playing on
+// foot also throws a punch (the drag and the swing coexist happily). ---
 let dragging = false;
 renderer.domElement.addEventListener('pointerdown', (event) => {
   dragging = true;
   renderer.domElement.setPointerCapture(event.pointerId);
+  if (state === 'playing' && mode === 'foot') mousePunch = true;
 });
 renderer.domElement.addEventListener('pointermove', (event) => {
   if (!dragging) return;
@@ -129,6 +152,18 @@ function nearestCar(maxDist) {
 }
 
 function enterCar(car) {
+  // Taking a car is only a crime when somebody sees it: a pedestrian within earshot
+  // or a police unit anywhere nearby. Slip away unobserved and the stars stay off.
+  const pos = car.group.position;
+  const witnessed = pedestrians.some((ped) => Math.hypot(
+    ped.group.position.x - pos.x,
+    ped.group.position.z - pos.z,
+  ) < 20) || police.cars.some((unit) => Math.hypot(
+    unit.group.position.x - pos.x,
+    unit.group.position.z - pos.z,
+  ) < 40);
+  if (witnessed) reportCrime(wanted, 'steal', elapsed);
+  mousePunch = false;
   activeCar = car;
   mode = 'car';
   claimCar(car);
@@ -167,6 +202,132 @@ function focus() {
   return { pos: player.group.position, heading: player.heading };
 }
 
+/** Take a hit: lose the health, get shoved away from whatever dealt it, maybe die. */
+function damagePlayer(amount, awayX, awayZ) {
+  health -= amount;
+  lastDamageAt = elapsed;
+  lastHurtAt = elapsed;
+  moveWithCollision(player.group.position, PLAYER.radius, awayX * 1.2, awayZ * 1.2, world.colliders, world.bounds);
+  if (health <= 0) {
+    health = 0;
+    doWasted();
+  }
+}
+
+function showEndcard(kind, title, sub) {
+  endKind = kind;
+  state = 'over';
+  endTitleEl.textContent = title;
+  endSubEl.textContent = sub;
+  endcardEl.classList.toggle('wasted', kind === 'wasted');
+  endcardEl.classList.remove('hidden');
+  bustedWrap.style.display = 'none';
+}
+
+function doBusted() {
+  const lost = money - Math.floor(money * 0.85);
+  money -= lost;
+  showEndcard('busted', 'BUSTED', `The Port Azura police relieve you of $${lost} in fines and impound fees. You are dropped at the harbour to think it over.`);
+  announce(`Busted. The police take $${lost}.`);
+}
+
+function doWasted() {
+  const lost = money - Math.floor(money * 0.9);
+  money -= lost;
+  showEndcard('wasted', 'WASTED', `You come to on the harbour quay with a $${lost} hospital bill and no memory of the ambulance.`);
+  announce(`Wasted. The hospital takes $${lost}.`);
+}
+
+/** Dismiss the end card: settle the outcome and put the player back at the quay. */
+function dismissEndcard() {
+  if (state !== 'over') return;
+  endcardEl.classList.add('hidden');
+  if (endKind === 'busted') {
+    setWanted(wanted, 0);
+    bustedMeter = 0;
+  }
+  if (endKind === 'wasted') health = START_HEALTH;
+  endKind = null;
+  if (mode === 'car') {
+    // Neither outcome can strike a driver, but never respawn inside a car by accident.
+    activeCar = null;
+    mode = 'foot';
+    player.group.visible = true;
+  }
+  player.group.position.set(0, 0, 176);
+  player.heading = Math.PI;
+  player.group.rotation.y = Math.PI;
+  camYaw = 0;
+  camPitch = 0.34;
+  police.clear();
+  state = 'playing';
+  announce('Back at the harbour. A fresh start, of a kind.');
+}
+
+endcardEl.addEventListener('click', dismissEndcard);
+window.addEventListener('keydown', () => {
+  if (state === 'over') dismissEndcard();
+});
+
+/**
+ * The per-frame bookkeeping of cause and effect, run while playing after the world
+ * has moved: collisions that count as crimes, cars that count as injuries, and the
+ * BUSTED meter filling while a unit has the on-foot player cornered.
+ */
+function updateConsequences(dt) {
+  if (mode === 'car' && activeCar) {
+    // Crimes at the wheel: ramming the law, and smashing into traffic at speed.
+    for (const unit of police.cars) {
+      const d = Math.hypot(
+        unit.group.position.x - activeCar.group.position.x,
+        unit.group.position.z - activeCar.group.position.z,
+      );
+      if (d < 3.3 && Math.abs(activeCar.speed) > 5 && reportCrime(wanted, 'hitPolice', elapsed)) {
+        activeCar.speed *= 0.55;
+      }
+    }
+    for (const other of trafficCars) {
+      const d = Math.hypot(
+        other.group.position.x - activeCar.group.position.x,
+        other.group.position.z - activeCar.group.position.z,
+      );
+      if (d < 3.1 && Math.abs(activeCar.speed) > 6 && reportCrime(wanted, 'hitTraffic', elapsed)) {
+        activeCar.speed *= 0.7;
+      }
+    }
+    bustedMeter = Math.max(0, bustedMeter - dt / 1.2);
+    return;
+  }
+
+  // On foot, a moving car is an injury waiting to happen — traffic and police alike.
+  // Each impact costs health scaled by the car's speed and shoves the player clear;
+  // brief invulnerability between impacts keeps a pile-up from melting him instantly.
+  const pos = player.group.position;
+  for (const car of [...allCars, ...police.cars]) {
+    const speed = Math.abs(car.speed);
+    if (speed < 3.5) continue;
+    const dx = pos.x - car.group.position.x;
+    const dz = pos.z - car.group.position.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < 4.2 && elapsed - lastHurtAt > 0.7) {
+      const d = Math.sqrt(d2) || 0.01;
+      damagePlayer(Math.min(34, (speed - 2.5) * 2.4), dx / d, dz / d);
+      if (state !== 'playing') return; // WASTED mid-loop: stop counting.
+    }
+  }
+
+  // Cornered: a police unit within arm's reach of an on-foot player fills the meter;
+  // break away and it drains again. A full meter is an arrest.
+  const cornered = wanted.level > 0 && police.cars.some((unit) => Math.hypot(
+    unit.group.position.x - pos.x,
+    unit.group.position.z - pos.z,
+  ) < POLICE.bustRange);
+  bustedMeter = cornered
+    ? Math.min(1, bustedMeter + dt / POLICE.bustSeconds)
+    : Math.max(0, bustedMeter - dt / 1.2);
+  if (bustedMeter >= 1) doBusted();
+}
+
 function updatePlaying(dt) {
   if (wasPressed('KeyF')) {
     if (mode === 'foot') {
@@ -191,6 +352,33 @@ function updatePlaying(dt) {
     const move = len > 0 ? { x: mx / len, z: mz / len } : null;
     const sprint = isDown('ShiftLeft') || isDown('ShiftRight');
     updatePlayer(player, dt, move, sprint, world);
+
+    // Fists: J or a mouse press swings at whatever is in front of the player. A hit
+    // sends the victim fleeing; a witness — another pedestrian close by, or a police
+    // unit in range — turns it into a star.
+    punchCooldown -= dt;
+    if ((wasPressed('KeyJ') || mousePunch) && punchCooldown <= 0) {
+      punchCooldown = 0.38;
+      punchAnimT = 0.22;
+      const hit = startlePedestrian(pedestrians, player.group.position, player.heading);
+      if (hit) {
+        const pos = player.group.position;
+        const witnessed = pedestrians.some((ped) => ped !== hit && Math.hypot(
+          ped.group.position.x - pos.x,
+          ped.group.position.z - pos.z,
+        ) < 12) || police.cars.some((unit) => Math.hypot(
+          unit.group.position.x - pos.x,
+          unit.group.position.z - pos.z,
+        ) < 30);
+        if (witnessed) reportCrime(wanted, 'punch', elapsed);
+      }
+    }
+    mousePunch = false;
+    if (punchAnimT > 0) {
+      punchAnimT -= dt;
+      const swing = Math.sin((1 - Math.max(0, punchAnimT) / 0.22) * Math.PI);
+      player.parts.armR.rotation.x = -2.0 * swing;
+    }
   } else if (activeCar) {
     const input = {
       throttle: (isDown('KeyW') || isDown('ArrowUp') ? 1 : 0) - (isDown('KeyS') || isDown('ArrowDown') ? 1 : 0),
@@ -200,11 +388,26 @@ function updatePlaying(dt) {
     updateCar(activeCar, input, dt, world);
   }
 
-  // HUD: health and money change only in later sessions, but the hint follows context.
+  // Health creeps back once the player has gone a while without taking a hit.
+  if (health > 0 && health < START_HEALTH && elapsed - lastDamageAt > HEALTH.regenDelay) {
+    health = Math.min(START_HEALTH, health + HEALTH.regenRate * dt);
+  }
+
+  // HUD: vitals, the heat as filled and empty stars, and a hint that follows context.
   healthEl.style.width = `${health}%`;
+  healthEl.style.background = health < 30 ? '#e5534b' : '';
   moneyEl.textContent = `$${money}`;
+  wantedEl.textContent = wanted.level > 0
+    ? '★'.repeat(wanted.level) + '☆'.repeat(5 - wanted.level)
+    : '';
+  bustedWrap.style.display = bustedMeter > 0.02 ? 'block' : 'none';
+  bustedFill.style.width = `${bustedMeter * 100}%`;
   if (mode === 'car') hintEl.textContent = 'F — exit car · Space — handbrake';
-  else if (nearestCar(3.5)) hintEl.textContent = 'F — enter car';
+  else if (nearestCar(3.5)) hintEl.textContent = 'F — enter car · J — punch';
+  else if (pedestrians.some((ped) => Math.hypot(
+    ped.group.position.x - player.group.position.x,
+    ped.group.position.z - player.group.position.z,
+  ) < 5)) hintEl.textContent = 'J — punch';
   else hintEl.textContent = '';
 }
 
@@ -290,6 +493,13 @@ function drawMinimap() {
     g.fillRect(px - 0.75, py - 0.75, 1.5, 1.5);
   }
 
+  // Police units as blue dots, big enough to plan an escape around.
+  g.fillStyle = '#3f8cff';
+  for (const unit of police.cars) {
+    const [px, py] = mapPoint(unit.group.position.x, unit.group.position.z);
+    g.fillRect(px - 1.5, py - 1.5, 3, 3);
+  }
+
   // The player (or the driven car) as a white arrow rotated by facing. On the map,
   // facing (sin h, cos h) in world XZ becomes the canvas direction (sin h, cos h).
   const { pos, heading } = focus();
@@ -328,6 +538,19 @@ if (shot === 'play') {
   announce('Neon Harbor: Port Azura. Press Start to explore the city.');
 }
 
+// A debug and test hook: read the run's vitals, and raise the heat on demand.
+window.__game = {
+  get state() { return state; },
+  get mode() { return mode; },
+  get wanted() { return wanted.level; },
+  setWanted(level) { setWanted(wanted, level); },
+  get policeCount() { return police.cars.length; },
+  get health() { return health; },
+  get money() { return money; },
+  get bustedMeter() { return bustedMeter; },
+  start: startGame,
+};
+
 let last = performance.now();
 let painted = 0;
 function frame(now) {
@@ -337,17 +560,49 @@ function frame(now) {
   elapsed += dt;
   if (state === 'playing') updatePlaying(dt);
   // Traffic and pedestrians live in both states: the city stays alive behind the
-  // title screen, orbiting camera and all.
+  // title screen, orbiting camera and all. Police units join the shared car list so
+  // traffic gives them room and pedestrians dodge them like any other car.
   const lifeCtx = {
     world,
-    cars: allCars,
+    cars: [...allCars, ...police.cars],
     pedestrians,
     playerCar: activeCar,
     playerPos: mode === 'foot' ? player.group.position : null,
     now: elapsed,
+    events: [],
   };
   updateTraffic(trafficCars, dt, lifeCtx);
   updatePedestrians(pedestrians, dt, lifeCtx);
+  if (state === 'playing') {
+    // A pedestrian knocked down by the player's own car is a crime with witnesses
+    // built in — the whole street just saw it.
+    for (const event of lifeCtx.events) {
+      if (event.type === 'pedHit' && event.byPlayer) {
+        reportCrime(wanted, 'hitPed', elapsed);
+        if (activeCar) activeCar.speed *= 0.7;
+      }
+    }
+    const f = focus();
+    police.update(dt, {
+      world,
+      cars: lifeCtx.cars,
+      pedestrians,
+      playerPos: f.pos,
+      playerInCar: mode === 'car',
+      playerCar: activeCar,
+      viewDir: { x: -Math.sin(camYaw), z: -Math.cos(camYaw) },
+      now: elapsed,
+      wanted: wanted.level,
+    });
+    // The heat fades only while no unit can actually see the player.
+    const seen = police.cars.some((unit) => {
+      const p = unit.group.position;
+      return Math.hypot(p.x - f.pos.x, p.z - f.pos.z) < POLICE.sightRange
+        && hasLineOfSight(p, f.pos, world.colliders);
+    });
+    updateWanted(wanted, dt, seen);
+    updateConsequences(dt);
+  }
   updateCamera(dt);
   drawMinimap();
   renderer.render(scene, camera);
