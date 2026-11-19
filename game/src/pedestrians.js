@@ -1,9 +1,7 @@
 // Pedestrians: the people of Port Azura. Each one strolls the sidewalk ring around a
-// city block, turns its corners, and now and then crosses the road at a corner to
-// continue around the neighbouring block. They are not brave: a moving car that gets
-// close makes them dodge aside and hurry, the player bumping into one makes them
-// sidestep, and a punch sends them fleeing. A fast car knocks one flat — but only
-// for a few seconds; nobody gets permanently hurt in Port Azura.
+// city block, turns its corners, and now and then crosses the road to the next block.
+// They dodge moving cars, sidestep the player, and flee a punch. A fast car knocks
+// one flat — but only for a few seconds; nobody gets permanently hurt in Port Azura.
 //
 // A pedestrian's route lives in { bi, bj, corner }: it is walking the perimeter of
 // block (bi, bj) toward that block's corner number `corner`, where the corners are
@@ -139,11 +137,11 @@ function decideNext(ped) {
  * a short arc ahead of him is startled into fleeing directly away from the blow.
  * Returns the pedestrian who was hit, or null for a swing at thin air.
  */
-export function startlePedestrian(peds, pos, heading) {
+export function startlePedestrian(peds, pos, heading, range = 1.8) {
   const fx = Math.sin(heading);
   const fz = Math.cos(heading);
   let best = null;
-  let bestDist = 1.8;
+  let bestDist = range;
   for (const ped of peds) {
     if (ped.downT > 0) continue;
     const dx = ped.group.position.x - pos.x;

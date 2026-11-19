@@ -1,9 +1,6 @@
-// Sound: a pocket WebAudio synth — no audio files, every noise made from oscillators
-// at the moment it is needed. An engine hum that follows the car's speed, a two-tone
-// police siren while the heat is on, and little one-shot bleeps for pickups, punches
-// and mission payouts. The context is only created on the first user gesture (the
-// Start button), which is what browser autoplay policies ask for; M mutes everything.
-// Every call is wrapped so that a machine with no audio at all simply plays silent.
+// Sound: a pocket WebAudio synth — no audio files, every noise made from oscillators.
+// The context is only created on the first user gesture (the Start button); M mutes.
+// Every call is wrapped so that a machine with no audio simply plays silent.
 
 export function createAudio() {
   let ac = null;
@@ -71,6 +68,11 @@ export function createAudio() {
   /** A fist lands: a short low thump that bends downward. */
   function thud() {
     tone(95, { type: 'triangle', dur: 0.12, vol: 0.3, slide: 45 });
+  }
+
+  /** A pistol shot: a sharp square crack that drops fast. */
+  function bang() {
+    tone(170, { type: 'square', dur: 0.09, vol: 0.26, slide: 55 });
   }
 
   function makeEngine() {
@@ -142,6 +144,7 @@ export function createAudio() {
     jingle,
     fail,
     thud,
+    bang,
     update,
     toggleMute,
     get muted() { return muted; },

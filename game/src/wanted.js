@@ -1,8 +1,5 @@
-// Wanted: how much the Port Azura police care about the player right now, on a scale
-// of zero to five stars. Crimes reported through reportCrime add a star, each with its
-// own cooldown so the same scrape cannot be farmed for heat; the level then fades one
-// star at a time while no police unit can see the player. The rules stay forgiving on
-// purpose: nothing here is permanent, and lying low always works eventually.
+// Wanted: 0–5 stars. Crimes reported through reportCrime add a star, each with its
+// own cooldown; the level fades one star at a time while no police unit sees the player.
 
 import { WANTED } from './config.js';
 
@@ -18,6 +15,8 @@ const CRIMES = {
   hitTraffic: { stars: 1, cooldown: 20 },
   /** Punching someone while a witness is near. */
   punch: { stars: 1, cooldown: 8 },
+  /** Shooting someone (or a car): loud, and the street notices. */
+  shoot: { stars: 1, cooldown: 6 },
 };
 
 export function createWanted() {

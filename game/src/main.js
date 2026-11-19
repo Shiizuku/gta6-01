@@ -1,12 +1,4 @@
-// Neon Harbor: Port Azura — boot, the game loop, and everything that ties the pieces
-// together: the title/playing state machine, the third-person orbit camera, entering
-// and leaving cars, the HUD, and the minimap. Session 3 wires the consequences in
-// here: the wanted level and its crimes, the police force, fists, health, and the
-// BUSTED / WASTED cards that end a run at the harbour.
-//
-// ?seed=N fixes the city layout (default 1). ?shot=start stages the title screen over a
-// slow orbit of the city; ?shot=play starts in-game beside a parked car. Both set
-// window.__shotReady once the staged frame has painted, like the kit starter did.
+// Neon Harbor: Port Azura — boot, game loop, camera, cars, HUD, minimap, wanted.
 
 import { CAMERA, CAR, CITY, DAY, HEALTH, PLAYER, POLICE, START_HEALTH, START_MONEY, WANTED } from './config.js';
 import { createRandom } from './random.js';
@@ -21,6 +13,7 @@ import { createRaces } from './races.js';
 import { createStanding, districtAt } from './standing.js';
 import { createTaxi } from './taxi.js';
 import { createStashes } from './stashes.js';
+import { createWeapons } from './weapons.js';
 import { clearSave, loadSave, writeSave } from './save.js';
 import { createAudio } from './audio.js';
 import { createPlayer, turnToward, updatePlayer } from './player.js';
@@ -46,6 +39,8 @@ const hintEl = document.getElementById('hint');
 const raceEl = document.getElementById('racetimer');
 const districtEl = document.getElementById('district');
 const stashEl = document.getElementById('stash');
+const weaponEl = document.getElementById('weapon');
+const crossEl = document.getElementById('crosshair');
 const standFillEl = document.getElementById('standfill');
 const objectiveEl = document.getElementById('objective');
 const missioncardEl = document.getElementById('missioncard');
@@ -69,9 +64,6 @@ const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerH
 const world = buildWorld(scene, createRandom(seed));
 const cars = spawnParkedCars(scene, createRandom(seed * 7919 + 13), world);
 
-// The player starts beside the first parked car, on the road side of it: shifted from
-// the car toward its road's centre line, so neither the player nor the opening camera
-// starts inside a building (the blocks begin barely a metre past the kerb).
 const firstCar = cars[0];
 const carPos = firstCar.group.position;
 const onVerticalRoad = Math.abs(Math.sin(firstCar.heading)) < 0.5;
@@ -87,8 +79,6 @@ if (onVerticalRoad) {
 const player = createPlayer(scene, spawnX, spawnZ);
 player.heading = firstCar.heading + Math.PI;
 
-// The living city: self-driving traffic on the road grid and pedestrians on the
-// sidewalks. Traffic spawns keep their distance from the parked cars and the player.
 const trafficCars = spawnTraffic(scene, createRandom(seed * 104729 + 7), world, [
   ...cars.map((car) => car.group.position),
   player.group.position,
@@ -96,22 +86,20 @@ const trafficCars = spawnTraffic(scene, createRandom(seed * 104729 + 7), world, 
 const pedestrians = spawnPedestrians(scene, createRandom(seed * 31337 + 101));
 const allCars = [...cars, ...trafficCars];
 
-// Consequences: the heat, the force that answers it, and the player's body.
 const wanted = createWanted();
 const police = createPoliceForce(scene, world, createRandom(seed * 5557 + 3));
 
-// Work, memory, and noise: Marisol's job chain, the saved run, the pocket synth.
 const missions = createMissions(scene, cars);
 const standing = createStanding();
 const races = createRaces(scene, standing);
 const taxi = createTaxi(scene, standing);
 const stashes = createStashes(scene);
+const weapons = createWeapons(scene);
 const audio = createAudio();
 let paused = false;
 let saveTimer = 0;
 let bootSave = loadSave();
 if (bootSave) {
-  // A returning player gets the choice: pick the old run up, or burn it and start over.
   continueBtn.classList.remove('hidden');
   startBtn.textContent = 'NEW GAME';
 }
@@ -135,8 +123,8 @@ let camDist = CAMERA.footDistance;
 let lastDragAt = -10;
 let elapsed = 0;
 
-// --- Camera orbit input: drag to orbit, wheel to zoom. A press while playing on
-// foot also throws a punch (the drag and the swing coexist happily). ---
+// Camera orbit input: drag to orbit, wheel to zoom. A press while playing on
+// foot also attacks (the drag and the swing coexist happily).
 let dragging = false;
 renderer.domElement.addEventListener('pointerdown', (event) => {
   dragging = true;
@@ -161,7 +149,6 @@ function announce(message) {
   status.textContent = message;
 }
 
-/** Put a saved run back on its feet: wallet, health, story, and where it stood. */
 function applySave(data) {
   money = data.money;
   health = Math.min(START_HEALTH, Math.max(1, data.health));
@@ -192,7 +179,6 @@ function applySave(data) {
   }
 }
 
-/** Record the run as it stands. Screenshot staging never saves (it would clobber). */
 function saveNow() {
   if (shot) return;
   const f = focus();
@@ -250,8 +236,6 @@ function nearestCar(maxDist) {
 }
 
 function enterCar(car) {
-  // Taking a car is only a crime when somebody sees it: a pedestrian within earshot
-  // or a police unit anywhere nearby. Slip away unobserved and the stars stay off.
   const pos = car.group.position;
   const witnessed = pedestrians.some((ped) => Math.hypot(
     ped.group.position.x - pos.x,
@@ -273,7 +257,6 @@ function enterCar(car) {
 function exitCar() {
   const car = activeCar;
   const pos = car.group.position;
-  // Step out on the car's right; fall back to its left if a wall is in the way.
   const right = { x: -Math.cos(car.heading), z: Math.sin(car.heading) };
   const spot = { x: pos.x + right.x * 2.3, z: pos.z + right.z * 2.3 };
   if (circleHits(spot, 0.45, world.colliders)) {
@@ -367,11 +350,7 @@ window.addEventListener('keydown', () => {
   if (state === 'over') dismissEndcard();
 });
 
-/**
- * The per-frame bookkeeping of cause and effect, run while playing after the world
- * has moved: collisions that count as crimes, cars that count as injuries, and the
- * BUSTED meter filling while a unit has the on-foot player cornered.
- */
+/** Per-frame cause and effect while playing: crimes, impacts, BUSTED meter. */
 function updateConsequences(dt) {
   if (mode === 'car' && activeCar) {
     // Crimes at the wheel: ramming the law, and smashing into traffic at speed.
@@ -398,8 +377,6 @@ function updateConsequences(dt) {
   }
 
   // On foot, a moving car is an injury waiting to happen — traffic and police alike.
-  // Each impact costs health scaled by the car's speed and shoves the player clear;
-  // brief invulnerability between impacts keeps a pile-up from melting him instantly.
   const pos = player.group.position;
   for (const car of [...allCars, ...police.cars]) {
     const speed = Math.abs(car.speed);
@@ -414,8 +391,7 @@ function updateConsequences(dt) {
     }
   }
 
-  // Cornered: a police unit within arm's reach of an on-foot player fills the meter;
-  // break away and it drains again. A full meter is an arrest.
+  // Cornered: a police unit within arm's reach fills the meter; break away and it drains.
   const cornered = wanted.level > 0 && police.cars.some((unit) => Math.hypot(
     unit.group.position.x - pos.x,
     unit.group.position.z - pos.z,
@@ -460,26 +436,30 @@ function updatePlaying(dt) {
     const move = len > 0 ? { x: mx / len, z: mz / len } : null;
     const sprint = isDown('ShiftLeft') || isDown('ShiftRight');
     updatePlayer(player, dt, move, sprint, world);
+    weapons.update(dt, { pos: player.group.position, heading: player.heading, mode, money, health, now: elapsed, audio, camera, pedestrians, police: police.cars, cars: allCars, wanted });
 
-    // Fists: J or a mouse press swings at whatever is in front of the player. A hit
-    // sends the victim fleeing; a witness — another pedestrian close by, or a police
-    // unit in range — turns it into a star.
+    // Attack: click / J fires the pistol (raycast from the camera) or swings
+    // fists / bat at whatever is in front. A hit sends the victim fleeing;
+    // a witness turns a punch into a star, a shot always does.
     punchCooldown -= dt;
     if ((wasPressed('KeyJ') || mousePunch) && punchCooldown <= 0) {
-      punchCooldown = 0.38;
+      punchCooldown = weapons.weapon === 'pistol' ? 0.28 : 0.38;
       punchAnimT = 0.22;
-      const hit = startlePedestrian(pedestrians, player.group.position, player.heading);
-      if (hit) {
-        audio.thud();
-        const pos = player.group.position;
-        const witnessed = pedestrians.some((ped) => ped !== hit && Math.hypot(
-          ped.group.position.x - pos.x,
-          ped.group.position.z - pos.z,
-        ) < 12) || police.cars.some((unit) => Math.hypot(
-          unit.group.position.x - pos.x,
-          unit.group.position.z - pos.z,
-        ) < 30);
-        if (witnessed) reportCrime(wanted, 'punch', elapsed);
+      if (weapons.weapon === 'pistol') weapons.shoot();
+      else {
+        const hit = startlePedestrian(pedestrians, player.group.position, player.heading, weapons.weapon === 'bat' ? 2.6 : 1.8);
+        if (hit) {
+          audio.thud();
+          const pos = player.group.position;
+          const witnessed = pedestrians.some((ped) => ped !== hit && Math.hypot(
+            ped.group.position.x - pos.x,
+            ped.group.position.z - pos.z,
+          ) < 12) || police.cars.some((unit) => Math.hypot(
+            unit.group.position.x - pos.x,
+            unit.group.position.z - pos.z,
+          ) < 30);
+          if (witnessed) reportCrime(wanted, 'punch', elapsed);
+        }
       }
     }
     mousePunch = false;
@@ -505,7 +485,6 @@ function updatePlaying(dt) {
     health = Math.min(START_HEALTH, health + HEALTH.regenRate * dt);
   }
 
-  // HUD: vitals, the heat as filled and empty stars, and a hint that follows context.
   healthEl.style.width = `${health}%`;
   healthEl.style.background = health < 30 ? '#e5534b' : '';
   moneyEl.textContent = `$${money}`;
@@ -515,8 +494,6 @@ function updatePlaying(dt) {
   bustedWrap.style.display = bustedMeter > 0.02 ? 'block' : 'none';
   bustedFill.style.width = `${bustedMeter * 100}%`;
 
-  // The job on the table, with its clock when it has one; a running taxi fare
-  // borrows the same line when no mission is on.
   const objective = missions.objectiveText || taxi.hudText();
   if (objective) {
     const t = missions.timerLeft;
@@ -529,8 +506,9 @@ function updatePlaying(dt) {
     objectiveEl.textContent = '';
   }
   stashEl.textContent = `Stash ${stashes.count}/${stashes.total}`;
+  weaponEl.textContent = weapons.hudText();
+  crossEl.style.display = weapons.weapon === 'pistol' && mode === 'foot' ? 'block' : 'none';
 
-  // Race clock (or the 3-2-1-GO), and the district standing where the player stands.
   const raceText = races.hudText();
   raceEl.textContent = raceText;
   raceEl.style.display = raceText ? 'block' : 'none';
@@ -539,7 +517,9 @@ function updatePlaying(dt) {
   districtEl.textContent = standing.hudText(here.x, here.z);
   standFillEl.style.width = `${standing.value(hereDistrict.id)}%`;
 
-  if (!missions.activeName && missions.nearStart(focus().pos)) hintEl.textContent = 'Step in — Marisol has work for you';
+  const wh = mode === 'foot' && weapons.hint(player.group.position);
+  if (wh) hintEl.textContent = wh;
+  else if (!missions.activeName && missions.nearStart(focus().pos)) hintEl.textContent = 'Step in — Marisol has work for you';
   else if (mode === 'car' && taxi.nearWaiting(focus().pos)) hintEl.textContent = 'T — pick up a passenger';
   else if (mode === 'car' && !races.activeName && races.nearStart(focus().pos)) {
     const race = races.nearStart(focus().pos);
@@ -582,8 +562,7 @@ function updateCamera(dt) {
   camera.lookAt(pos.x, pos.y + 1.6, pos.z);
 }
 
-// --- Minimap: the whole city on a 180x180 canvas, north (-Z) up. The map spans
-// x in [-210, 210] and z in [-190, 230] so the harbour water shows along the bottom. ---
+// Minimap: the whole city on a 180x180 canvas, north (-Z) up.
 const MAP = { minX: -210, minZ: -190, size: 420 };
 function mapPoint(x, z) {
   return [((x - MAP.minX) / MAP.size) * 180, ((z - MAP.minZ) / MAP.size) * 180];
@@ -594,7 +573,6 @@ function drawMinimap() {
   g.fillStyle = '#232a35';
   g.fillRect(0, 0, 180, 180);
 
-  // Water along the bottom, then the quay strip above it.
   const [, waterY] = mapPoint(0, CITY.waterStart);
   g.fillStyle = '#16456b';
   g.fillRect(0, waterY, 180, 180 - waterY);
@@ -602,7 +580,6 @@ function drawMinimap() {
   g.fillStyle = '#4a5058';
   g.fillRect(0, quayY, 180, waterY - quayY);
 
-  // The district the player stands in, tinted faintly so the map reads by area.
   const [qx] = mapPoint(-36, 0);
   const [mx] = mapPoint(36, 0);
   const [, qy] = mapPoint(0, 108);
@@ -613,7 +590,6 @@ function drawMinimap() {
   else if (d.id === 'marina') g.fillRect(mx, 0, 180 - mx, qy);
   else g.fillRect(qx, 0, mx - qx, qy);
 
-  // Roads as light lines on both axes.
   g.strokeStyle = '#79828f';
   g.lineWidth = Math.max(2, (CITY.roadWidth / MAP.size) * 180);
   g.beginPath();
@@ -627,14 +603,12 @@ function drawMinimap() {
   }
   g.stroke();
 
-  // Parked cars as amber dots.
   g.fillStyle = '#ffb347';
   for (const car of cars) {
     const [px, py] = mapPoint(car.group.position.x, car.group.position.z);
     g.fillRect(px - 1.5, py - 1.5, 3, 3);
   }
 
-  // Traffic cars as smaller grey dots, pedestrians as tiny faint ones.
   g.fillStyle = '#9aa3ad';
   for (const car of trafficCars) {
     const [px, py] = mapPoint(car.group.position.x, car.group.position.z);
@@ -646,14 +620,12 @@ function drawMinimap() {
     g.fillRect(px - 0.75, py - 0.75, 1.5, 1.5);
   }
 
-  // Police units as blue dots, big enough to plan an escape around.
   g.fillStyle = '#3f8cff';
   for (const unit of police.cars) {
     const [px, py] = mapPoint(unit.group.position.x, unit.group.position.z);
     g.fillRect(px - 1.5, py - 1.5, 3, 3);
   }
 
-  // The job: Marisol's marker, or wherever the current work points, in gold.
   for (const blip of missions.mapBlips()) {
     const [bx, by] = mapPoint(blip.x, blip.z);
     g.beginPath();
@@ -665,7 +637,6 @@ function drawMinimap() {
     g.stroke();
   }
 
-  // Street races: cyan dots at the start rings, a ring around the next checkpoint.
   for (const blip of races.mapBlips()) {
     const [bx, by] = mapPoint(blip.x, blip.z);
     g.beginPath();
@@ -677,7 +648,6 @@ function drawMinimap() {
     g.stroke();
   }
 
-  // Taxi: an amber dot for the waiting passenger, a ring for the drop-off.
   for (const blip of taxi.mapBlips()) {
     const [bx, by] = mapPoint(blip.x, blip.z);
     g.beginPath();
@@ -689,15 +659,12 @@ function drawMinimap() {
     g.stroke();
   }
 
-  // Harbour stashes still out there, as small green dots.
   g.fillStyle = '#7dff8a';
   for (const blip of stashes.mapBlips()) {
     const [bx, by] = mapPoint(blip.x, blip.z);
     g.fillRect(bx - 1.25, by - 1.25, 2.5, 2.5);
   }
 
-  // The player (or the driven car) as a white arrow rotated by facing. On the map,
-  // facing (sin h, cos h) in world XZ becomes the canvas direction (sin h, cos h).
   const { pos, heading } = focus();
   const [px, py] = mapPoint(pos.x, pos.z);
   g.save();
@@ -720,7 +687,7 @@ window.addEventListener('resize', () => {
 });
 
 // Shot staging: ?shot=start keeps the title over the orbit; ?shot=play drops straight
-// into the game beside the first parked car, camera framed on the pair of them.
+// into the game beside the first parked car.
 if (shot === 'play') {
   startGame();
   camYaw = firstCar.heading + Math.PI;
@@ -734,8 +701,7 @@ if (shot === 'play') {
   announce('Neon Harbor: Port Azura. Press Start to explore the city.');
 }
 
-// --- The day drifting by: late afternoon melts into dusk and back over six minutes.
-// The sun sinks and warms, the sky deepens, and the street lamps come up as it fades. ---
+// The day drifting by: late afternoon melts into dusk and back over six minutes.
 const SKY_DAY = new THREE.Color(0x3b4a6b);
 const SKY_DUSK = new THREE.Color(0x252040);
 const SUN_DAY = new THREE.Color(0xffb36b);
@@ -757,7 +723,6 @@ function updateDayCycle() {
   world.lampMaterial.color.copy(LAMP_DAY).lerp(LAMP_DUSK, k);
 }
 
-// --- Mission bookkeeping: the module reports, main.js pays, punishes, and plays. ---
 let lastCardSeq = 0;
 let cardTimer = null;
 
@@ -775,13 +740,11 @@ function drainMissionEvents() {
   for (const event of missions.events) {
     if (event.type === 'complete') {
       money += event.payout;
-      // The job ends where the player stands: that district remembers the work.
       standing.addStanding(districtAt(focus().pos.x, focus().pos.z).id, 8);
       audio.jingle();
       saveNow();
       announce(`${event.name} complete. +$${event.payout}.`);
     } else if (event.type === 'steal') {
-      // Marisol's repossession is still, legally speaking, a theft: one star.
       setWanted(wanted, Math.min(WANTED.maxStars, wanted.level + 1));
     } else if (event.type === 'setWanted') {
       setWanted(wanted, event.level);
@@ -795,7 +758,7 @@ function drainMissionEvents() {
   missions.events.length = 0;
 }
 
-/** Race bookkeeping: main.js pays the win, credits the district, and saves. */
+/** Race bookkeeping. */
 function drainRaceEvents() {
   for (const event of races.events) {
     if (event.type === 'win') {
@@ -816,7 +779,7 @@ function drainRaceEvents() {
   races.events.length = 0;
 }
 
-/** Taxi bookkeeping: main.js pays the fare and saves. */
+/** Taxi bookkeeping. */
 function drainTaxiEvents() {
   for (const event of taxi.events) {
     if (event.type === 'fare') {
@@ -836,7 +799,7 @@ function drainTaxiEvents() {
   taxi.events.length = 0;
 }
 
-/** Stash bookkeeping: +$25 and +1 standing per stash; all ten pay a $250 bonus. */
+/** Stash bookkeeping. */
 function drainStashEvents() {
   for (const event of stashes.events) {
     money += event.payout;
@@ -851,6 +814,19 @@ function drainStashEvents() {
     }
   }
   stashes.events.length = 0;
+}
+
+/** Weapon/shop bookkeeping. */
+function drainWeaponEvents() {
+  for (const e of weapons.events) {
+    if (e.type === 'buyAmmo') { money -= 30; weapons.ammo = Math.min(48, weapons.ammo + 12); audio.chime(); saveNow(); announce('Ammo +12.'); }
+    else if (e.type === 'buyHealth') { money -= 50; health = Math.min(START_HEALTH, health + 50); audio.chime(); saveNow(); announce('Health +50.'); }
+    else if (e.type === 'deny') announce('Not enough cash.');
+    else if (e.type === 'pickup') { audio.chime(); announce(e.kind === 'pistol' ? 'Pistol +24 ammo.' : 'Bat picked up.'); }
+    else if (e.type === 'empty') announce('Out of ammo — visit a $ shop.');
+    else announce('Nothing to buy.');
+  }
+  weapons.events.length = 0;
 }
 
 function togglePause() {
@@ -889,6 +865,12 @@ window.__game = {
   get stashes() {
     return { found: stashes.found, count: stashes.count, spots: stashes.spots };
   },
+  get weapons() { return weapons; },
+  get peds() { return pedestrians.map((p) => ({ x: p.group.position.x, z: p.group.position.z, fleeT: p.fleeT })); },
+  get playerPos() { return player.group.position; },
+  get policePos() { return police.cars.map((c) => c.group.position); },
+  get camYaw() { return camYaw; },
+  setHealth(v) { health = Math.max(0, Math.min(START_HEALTH, v)); },
   get standing() { return standing.serialize(); },
   get raceDefs() { return races.defs; },
   get paused() { return paused; },
@@ -898,8 +880,9 @@ window.__game = {
     return allCars.map((car) => ({ x: car.group.position.x, z: car.group.position.z }));
   },
   saveNow,
-  teleport(x, z) {
+  teleport(x, z, heading) {
     player.group.position.set(x, 0, z);
+    if (heading != null) { player.heading = heading; player.group.rotation.y = heading; }
     if (activeCar) activeCar.group.position.set(x, 0, z);
   },
   start: startGame,
@@ -911,14 +894,10 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
-  // Pause and mute are read straight off the press queue, before anything consumes it.
   if (state === 'playing' && (wasPressed('Escape') || wasPressed('KeyP'))) togglePause();
   if (wasPressed('KeyM')) announce(audio.toggleMute() ? 'Sound muted. M to unmute.' : 'Sound on.');
   if (!paused) elapsed += dt;
   if (state === 'playing' && !paused) updatePlaying(dt);
-  // Traffic and pedestrians live in both states: the city stays alive behind the
-  // title screen, orbiting camera and all. Police units join the shared car list so
-  // traffic gives them room and pedestrians dodge them like any other car.
   const lifeCtx = {
     world,
     cars: [...allCars, ...police.cars],
@@ -933,8 +912,6 @@ function frame(now) {
     updatePedestrians(pedestrians, dt, lifeCtx);
   }
   if (state === 'playing' && !paused) {
-    // A pedestrian knocked down by the player's own car is a crime with witnesses
-    // built in — the whole street just saw it.
     for (const event of lifeCtx.events) {
       if (event.type === 'pedHit' && event.byPlayer) {
         reportCrime(wanted, 'hitPed', elapsed);
@@ -953,7 +930,6 @@ function frame(now) {
       now: elapsed,
       wanted: wanted.level,
     });
-    // The heat fades only while no unit can actually see the player.
     const seen = police.cars.some((unit) => {
       const p = unit.group.position;
       return Math.hypot(p.x - f.pos.x, p.z - f.pos.z) < POLICE.sightRange
@@ -961,8 +937,6 @@ function frame(now) {
     });
     updateWanted(wanted, dt, seen);
     updateConsequences(dt);
-    // Marisol's clock only ticks while the run does: title, BUSTED and WASTED cards,
-    // and the pause overlay all freeze it where it stands.
     missions.update(dt, {
       pos: f.pos,
       mode,
@@ -978,6 +952,7 @@ function frame(now) {
     drainTaxiEvents();
     stashes.update(dt, { pos: f.pos });
     drainStashEvents();
+    drainWeaponEvents();
     saveTimer += dt;
     if (saveTimer >= 15) {
       saveTimer = 0;
