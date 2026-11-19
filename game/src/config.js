@@ -1,61 +1,53 @@
-// Every tuning number and colour in one place. The playfield is a fixed 1280x720 logical area;
-// the renderer scales it to the window, so no rule below depends on the screen size.
+// Every tuning number for Neon Harbor: Port Azura in one place. Distances are metres,
+// speeds are metres per second, angles are radians. The city is a square grid centred on
+// the origin: roads run along the grid lines, city blocks sit between them, and the
+// harbour (quay, then open water) lies along the +Z (southern) edge.
 
-export const FIELD = { width: 1280, height: 720, groundY: 664 };
-
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
-export const STEP = 1 / 60;
+export const CITY = {
+  /** City blocks along each axis. */
+  blocks: 8,
+  /** Centre-to-centre spacing of neighbouring road lines. */
+  pitch: 36,
+  /** Width of one city block (the buildable square between roads). */
+  blockSize: 24,
+  /** Width of one road, gutter to gutter. */
+  roadWidth: 12,
+  /** The ground slab reaches this far from the centre on every side. */
+  half: 162,
+  /** The quay (walkable concrete) runs from the ground edge to this Z. */
+  quayEnd: 190,
+  /** Open water starts at this Z and runs to the horizon. */
+  waterStart: 190,
+};
 
 export const PLAYER = {
-  width: 72,
-  height: 24,
-  speed: 560,
-  invulnerable: 1.5,
+  /** Collision circle radius while on foot. */
+  radius: 0.45,
+  walkSpeed: 5.2,
+  sprintSpeed: 8.8,
 };
 
-export const LIVES = 3;
-
-export const BLOCK = {
-  minWidth: 40,
-  maxWidth: 110,
-  height: 36,
-  speed: 240,
-  speedPerLevel: 30,
-  speedJitter: 90,
-  interval: 0.55,
-  intervalScale: 0.88,
-  minInterval: 0.14,
-  dodgePoints: 1,
+export const CAR = {
+  /** Collision circle radius for a car (covers most of its body). */
+  radius: 1.55,
+  maxSpeed: 30,
+  maxReverse: 9,
+  accel: 15,
+  brake: 30,
+  /** How many parked cars the city spawns. */
+  parkedCount: 12,
 };
 
-export const COIN = {
-  size: 24,
-  speed: 190,
-  speedPerLevel: 14,
-  interval: 1.4,
-  intervalJitter: 0.8,
-  points: 10,
+export const CAMERA = {
+  footDistance: 7.5,
+  carDistance: 11,
+  minDistance: 4,
+  maxDistance: 22,
+  minPitch: 0.1,
+  maxPitch: 1.15,
+  /** Seconds without a mouse drag before the camera settles behind a driven car. */
+  realignDelay: 2.5,
 };
 
-/** Seconds of play per level, and the last level: speeds and spawn rates stop growing there. */
-export const LEVEL = { seconds: 12, max: 12 };
-
-/** How many falling things can exist at once; the pool is allocated once, at boot. */
-export const POOL_SIZE = 64;
-
-export const PALETTE = {
-  backdrop: '#11141b',
-  sky: '#1b1f2a',
-  ground: '#2a3040',
-  player: '#4fc3f7',
-  block: '#e5534b',
-  coin: '#f2c94c',
-  panel: '#252b38',
-  text: '#eef1f5',
-  muted: '#8b93a3',
-};
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-
-/** Where the best score is kept between visits (this browser only). */
-export const BEST_KEY = 'block-dodger.best';
+export const START_MONEY = 250;
+export const START_HEALTH = 100;

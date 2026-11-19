@@ -3,17 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<title>Neon Harbor: Port Azura</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #101623; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eef1f5; }
+  #game { position: fixed; inset: 0; }
+  #game canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
   /* Read aloud, never shown: the status line screen readers announce. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  #topleft { position: absolute; top: 16px; left: 16px; }
+  #healthbar { width: 210px; height: 14px; background: rgba(8, 12, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 3px; overflow: hidden; }
+  #healthfill { height: 100%; width: 100%; background: linear-gradient(90deg, #e5534b, #f2c94c); transition: width 0.2s ease; }
+  #money { margin-top: 7px; font-size: 22px; font-weight: 700; color: #ffd166; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); letter-spacing: 0.5px; }
+  #wanted { position: absolute; top: 14px; right: 18px; min-width: 130px; height: 30px; text-align: right; font-size: 24px; letter-spacing: 3px; color: #ffd166; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+  #minimap { position: absolute; left: 16px; bottom: 16px; width: 180px; height: 180px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 4px; background: #0d1420; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); }
+  #hint { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); font-size: 16px; font-weight: 600; color: #eef1f5; background: rgba(8, 12, 20, 0.55); padding: 5px 14px; border-radius: 14px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); white-space: nowrap; }
+
+  #title { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(10, 14, 26, 0.25) 0%, rgba(10, 14, 26, 0.78) 100%); text-align: center; }
+  #title.hidden { display: none; }
+  #title h1 { margin: 0; font-size: 76px; font-weight: 900; letter-spacing: 10px; color: #ffd166; text-shadow: 0 0 18px rgba(255, 122, 26, 0.75), 0 0 46px rgba(255, 62, 130, 0.5), 0 3px 0 #b23a48; }
+  #title .sub { margin: 6px 0 0; font-size: 30px; font-weight: 300; letter-spacing: 14px; color: #7ee0ff; text-shadow: 0 0 14px rgba(64, 180, 255, 0.8); text-transform: uppercase; }
+  #title .tag { margin: 18px 0 0; font-size: 15px; color: #c8cfdb; }
+  #title ul { list-style: none; margin: 26px 0 30px; padding: 14px 26px; background: rgba(8, 12, 20, 0.6); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px; font-size: 16px; line-height: 1.75; color: #e6ebf2; }
+  #title ul b { color: #ffd166; font-weight: 700; }
+  #start { pointer-events: auto; font: inherit; font-size: 20px; font-weight: 800; letter-spacing: 3px; color: #14100a; background: linear-gradient(180deg, #ffd166, #ff9f2e); border: 0; border-radius: 6px; padding: 13px 46px; cursor: pointer; box-shadow: 0 4px 18px rgba(255, 159, 46, 0.45); }
+  #start:hover { filter: brightness(1.08); }
+  #start:focus-visible { outline: 3px solid #7ee0ff; outline-offset: 3px; }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
+<div id="game"></div>
+
+<div id="hud">
+  <div id="topleft">
+    <div id="healthbar"><div id="healthfill"></div></div>
+    <div id="money">$250</div>
+  </div>
+  <div id="wanted" aria-hidden="true"></div>
+  <canvas id="minimap" width="180" height="180"></canvas>
+  <div id="hint"></div>
+</div>
+
+<div id="title">
+  <h1>NEON HARBOR</h1>
+  <p class="sub">Port Azura</p>
+  <p class="tag">An original open-world driving game in a dusk-lit harbour city.</p>
+  <ul>
+    <li><b>WASD</b> — walk / drive &nbsp;·&nbsp; <b>Shift</b> — sprint</li>
+    <li><b>F</b> — enter / exit car</li>
+    <li><b>Mouse drag</b> — orbit camera &nbsp;·&nbsp; <b>Wheel</b> — zoom</li>
+  </ul>
+  <button id="start" type="button">START</button>
+</div>
+
 <p id="status" role="status" aria-live="polite"></p>
+<script src="./vendor/three.min.js"></script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
