@@ -1,7 +1,5 @@
-// Keyboard state for the game: which keys are held right now, and which were newly
-// pressed since the last frame. One-shot presses (like F to enter a car) are read with
-// wasPressed and cleared by endFrame, so a press is seen exactly once and a press that
-// lands between two frames is never lost.
+// Keyboard state: which keys are held now, and which were newly pressed since the
+// last frame. One-shot presses are read with wasPressed and cleared by endFrame.
 
 const held = new Set();
 const pressed = new Set();
@@ -10,7 +8,7 @@ const GAME_KEYS = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
   'ShiftLeft', 'ShiftRight', 'Space', 'KeyF', 'KeyJ', 'KeyE', 'KeyT', 'Enter',
-  'KeyM', 'KeyP', 'Escape',
+  'KeyM', 'KeyP', 'Escape', 'Digit1', 'Digit2', 'KeyQ',
 ]);
 
 window.addEventListener('keydown', (event) => {
