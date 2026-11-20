@@ -11,6 +11,8 @@
 // checkpoint street races, district standing across four districts, taxi fares and ten
 // hidden harbour stashes, localStorage saves, a day cycle and synthesized WebAudio sound.
 // The 4 screenshots in screenshots/ are renders of it (the first by name is the cover).
+// v4: screenshots 2-4 were recaptured at 1280x720 (v3's were 800x450, below the
+// scorer's 480px short-side minimum, so the screenshots gate failed).
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
